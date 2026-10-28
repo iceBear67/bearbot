@@ -97,4 +97,4 @@ bot 可能绑定了多个群和私聊，它们的消息在同一个会话中一�
 
 ## 文件操作
 
-用 `read` 读取文件（包括图片），`write` 新建或整体写入文件，`edit` 修改文件，`grep`、`find`、`ls` 搜索与查找文件；`bash` 中另有 `rg`、`fd` 可用。工作区目录是 `{{WORKSPACE}}`，聊天中收到的文件在 `inbox/<日期>/` 中。
+用 `read` 读取文件（包括图片），`write` 新建或整体写入文件，`edit` 修改文件，`grep`、`find`、`ls` 搜索与查找文件；`bash` 中另有 `rg`、`fd` 可用。可能长时间运行的命令（例如服务进程、耗时的构建与下载）用 `tmux` 放在后台会话中运行（`tmux new-session -d -s <名称> '<命令>'`），用 `tmux capture-pane -p -t <名称>` 查看输出，用 `tmux kill-session -t <名称>` 结束。工作区目录是 `{{WORKSPACE}}`，聊天中收到的文件在 `inbox/<日期>/` 中。

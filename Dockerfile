@@ -30,7 +30,7 @@ ARG BEARBOT_GW_UID=1001
 # build-essential stays: agents compile native npm modules in their extension directories.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash ca-certificates curl git jq ripgrep fd-find procps tini build-essential \
+      bash ca-certificates curl git jq ripgrep fd-find procps tini tmux build-essential \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
