@@ -1967,7 +1967,7 @@ hook_timeout = "30s"            # 每条命令的最长执行时间
 仓库根目录的 `Dockerfile`：
 
 ```dockerfile
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
 FROM golang:1.27-bookworm AS daemon
 WORKDIR /src
 COPY daemon/go.mod daemon/go.sum ./
@@ -2048,7 +2048,7 @@ CMD ["run", "--config", "/bearbot/config/bearbot.toml"]
 
 `/run/bearbot` 由 daemon 在启动时创建并设置属主与权限（第 3 节）；运行时用 `--tmpfs /run/bearbot` 挂载为 tmpfs。
 
-`.github/workflows/docker.yml` 只在推送 `v*` 标签时运行：调用 `docker/github-builder` 的 `build.yml`，用默认构建参数在原生的 GitHub 运行器上分别构建 `linux/amd64` 与 `linux/arm64`，合并为一个多平台镜像推送到 `ghcr.io/<仓库>`，标签由 `docker/metadata-action` 按语义化版本生成（`{{version}}`、`{{major}}.{{minor}}`，正式版本另加 `latest`），使用 GitHub Actions 缓存，并用 GitHub OIDC 对镜像附带的 SLSA 构建证明签名。`better-sqlite3` 自带 `linux-x64` 与 `linux-arm64` 的预编译文件，所以两个平台都不需要 node-gyp。
+`.github/workflows/docker.yml` 只在推送 `v*` 标签时运行：调用 `docker/github-builder` 的 `build.yml`，用默认构建参数在原生的 GitHub 运行器上分别构建 `linux/amd64` 与 `linux/arm64`，合并为一个多平台镜像推送到 `ghcr.io/<仓库>`，标签由 `docker/metadata-action` 按语义化版本生成（`{{version}}`、`{{major}}.{{minor}}`，正式版本另加 `latest`），使用 GitHub Actions 缓存，并用 GitHub OIDC 对镜像附带的 SLSA 构建证明签名。`better-sqlite3` 自带 `linux-x64` 与 `linux-arm64` 的预编译文件，所以两个平台都不需要 node-gyp。`build.yml` 从 git 上下文构建，要求 Dockerfile 前端支持 `source.git.checksum`（1.10 及以上），所以 `Dockerfile` 第一行使用 `docker/dockerfile:1`，取 1.x 的最新版本。
 
 运行：
 

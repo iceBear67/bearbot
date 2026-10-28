@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1
 FROM golang:1.27-bookworm AS daemon
 WORKDIR /src
 COPY daemon/go.mod daemon/go.sum ./
