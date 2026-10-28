@@ -44,6 +44,7 @@ type Config struct {
 	QQAppID          string
 	QQClientSecret   string
 	QQSandbox        bool
+	QQMarkdown       bool
 	ConsoleEnabled   bool
 
 	ObserveLimit  int
@@ -88,6 +89,7 @@ func DefaultConfig() Config {
 		ImageMaxBytes:     5242880,
 		MaintenanceNotice: "bearbot 正在修复，暂时无法回复。",
 		HTTPListen:        "",
+		QQMarkdown:        true,
 		ConsoleEnabled:    true,
 		ObserveLimit:      30,
 		HoldWarnAfter:     "10m",
@@ -179,6 +181,7 @@ enabled = {{.QQEnabled}}
 app_id = {{q .QQAppID}}
 client_secret = {{q .QQClientSecret}}
 sandbox = {{.QQSandbox}}
+markdown = {{.QQMarkdown}}
 
 [platforms.wecom]
 enabled = false

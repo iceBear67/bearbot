@@ -68,7 +68,7 @@ describe("a failed first connection does not stop the gateway (contracts 9.4)", 
   });
 
   test("qq with made-up credentials: recorded as error and retried", async () => {
-    const env = makeEnv({ platforms: { qq: { appId: "102000000", clientSecret: "not-a-real-secret", sandbox: true } } });
+    const env = makeEnv({ platforms: { qq: { appId: "102000000", clientSecret: "not-a-real-secret", sandbox: true, markdown: true } } });
     cleanups.push(() => removeEnv(env));
     const gw = await start(env);
     const ctl = await connectDaemon(env);
@@ -139,7 +139,7 @@ const QQ_SECRET = process.env.BEARBOT_TEST_QQ_CLIENT_SECRET;
 
 describe.skipIf(!QQ_APP || !QQ_SECRET)("live QQ sandbox (BEARBOT_TEST_QQ_APP_ID, BEARBOT_TEST_QQ_CLIENT_SECRET)", () => {
   test("socket mode connects and platforms.status reports it", async () => {
-    const env = makeEnv({ platforms: { qq: { appId: QQ_APP, clientSecret: QQ_SECRET, sandbox: true } } });
+    const env = makeEnv({ platforms: { qq: { appId: QQ_APP, clientSecret: QQ_SECRET, sandbox: true, markdown: true } } });
     cleanups.push(() => removeEnv(env));
     const gw = await start(env);
     const ctl = await connectDaemon(env);
@@ -155,7 +155,7 @@ describe.skipIf(!QQ_APP || !QQ_SECRET)("live QQ sandbox (BEARBOT_TEST_QQ_APP_ID,
   const QQ_GROUP = process.env.BEARBOT_TEST_QQ_GROUP_OPENID;
 
   test.skipIf(!QQ_GROUP)("a message of the bot gets a quote index and can be quoted (BEARBOT_TEST_QQ_GROUP_OPENID)", async () => {
-    const env = makeEnv({ platforms: { qq: { appId: QQ_APP, clientSecret: QQ_SECRET, sandbox: true } } });
+    const env = makeEnv({ platforms: { qq: { appId: QQ_APP, clientSecret: QQ_SECRET, sandbox: true, markdown: true } } });
     cleanups.push(() => removeEnv(env));
     const target = `qq:group/${QQ_GROUP}`;
     // Bind the test group before the gateway starts (an admin would do this with /bb attach).

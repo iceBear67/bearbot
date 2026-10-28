@@ -52,7 +52,7 @@ beforeAll(async () => {
       maintenanceNotice: "bearbot 正在修复，暂时无法回复。",
       classifierEnabledDefault: true,
       http: { listen: "" },
-      platforms: { qq: { appId: "102000000", clientSecret: "not-a-real-secret", sandbox: true } },
+      platforms: { qq: { appId: "102000000", clientSecret: "not-a-real-secret", sandbox: true, markdown: true } },
     }),
   );
   // The same objects main.ts builds; the sockets are not opened, so bearbotd counts as not connected.

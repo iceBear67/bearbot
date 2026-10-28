@@ -6,7 +6,7 @@ import type { Adapter, AdapterPostableMessage, CardElement, FileUpload, RawMessa
 import mime from "mime";
 import type { PinoLogger } from "./log.ts";
 import type { MessageLog } from "./message-log.ts";
-import type { Platforms } from "./platforms.ts";
+import { GatewayQQAdapter, type Platforms } from "./platforms.ts";
 import type { Repo } from "./repo.ts";
 import { openNoFollow, type OpenedFile } from "./safe-open.ts";
 import type { AttachmentType, OutboundPayload, WireAttachment } from "./types.ts";
@@ -40,6 +40,11 @@ export type PostContent = {
 type QQSendResponse = { ext_info?: { ref_idx?: string } };
 
 type Part = { message: AdapterPostableMessage; text: string; files: LoadedFile[]; card?: CardElement };
+
+/** QQ with `[platforms.qq] markdown = false`: native markdown messages need a platform permission, so text goes out as plain content. */
+function qqPlain(adapter: Adapter): boolean {
+  return adapter instanceof GatewayQQAdapter && !adapter.markdown;
+}
 
 export function attachmentTypeOf(mimeType: string | undefined): AttachmentType {
   if (mimeType?.startsWith("image/")) return "image";
@@ -265,9 +270,8 @@ export class Outbound {
     if (adapter.name === "telegram") {
       parts = this.telegramParts(text, plain, files);
     } else if (text !== "" || files.length > 0) {
-      // QQ: native markdown messages need a platform permission, so text goes out as plain content.
       const message: AdapterPostableMessage =
-        plain || adapter.name === "qq" ? { raw: text, files: files.map(toUpload) } : { markdown: text, files: files.map(toUpload) };
+        plain || qqPlain(adapter) ? { raw: text, files: files.map(toUpload) } : { markdown: text, files: files.map(toUpload) };
       parts = [{ message, text, files }];
     } else {
       parts = [];
@@ -354,7 +358,7 @@ export class Outbound {
         await adapter.editMessage(
           threadId,
           messageId,
-          adapter.name === "qq" ? { raw: content.markdown } : { markdown: content.markdown },
+          qqPlain(adapter) ? { raw: content.markdown } : { markdown: content.markdown },
         );
       } else {
         throw new OutboundError("edit 需要 markdown 或 card");

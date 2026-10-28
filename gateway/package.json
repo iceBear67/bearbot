@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@amatsuka/chat-adapter-qq": "0.1.13",
+    "@amatsuka/chat-adapter-qq": "0.2.0",
     "@chat-adapter/shared": "4.43.0",
     "@chat-adapter/telegram": "4.43.0",
     "@hono/node-server": "2.1.5",

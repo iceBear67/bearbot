@@ -87,6 +87,7 @@ enabled = false
 app_id = ""
 client_secret = ""
 sandbox = false
+markdown = true
 
 [platforms.wecom]
 enabled = false

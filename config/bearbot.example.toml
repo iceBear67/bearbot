@@ -42,6 +42,7 @@ enabled = false
 app_id = "${QQ_BOT_APP_ID}"           # QQ 开放平台的机器人 AppID
 client_secret = "${QQ_BOT_CLIENT_SECRET}"
 sandbox = false                       # 使用 QQ 的沙箱环境
+markdown = true                       # 文本以 QQ 的 markdown 消息发送（需要平台开通的权限）；false 时以纯文本发送
 
 [platforms.wecom]
 enabled = false                 # 企业微信适配器尚未实现，设为 true 时 daemon 拒绝启动

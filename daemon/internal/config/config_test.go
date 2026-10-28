@@ -349,7 +349,21 @@ app_id = "${BB_QQ_ID}"
 client_secret = "${BB_QQ_SECRET}"
 sandbox = true
 `)
-	if !cfg.Platforms.QQ.Enabled || cfg.Platforms.QQ.AppID != "102" || cfg.Platforms.QQ.ClientSecret != "s3cret" || !cfg.Platforms.QQ.Sandbox {
+	if !cfg.Platforms.QQ.Enabled || cfg.Platforms.QQ.AppID != "102" || cfg.Platforms.QQ.ClientSecret != "s3cret" || !cfg.Platforms.QQ.Sandbox ||
+		!cfg.Platforms.QQ.Markdown {
+		t.Fatalf("qq = %+v", cfg.Platforms.QQ)
+	}
+}
+
+func TestQQMarkdownOff(t *testing.T) {
+	cfg := mustLoad(t, minimal+`
+[platforms.qq]
+enabled = true
+app_id = "102"
+client_secret = "s3cret"
+markdown = false
+`)
+	if cfg.Platforms.QQ.Markdown {
 		t.Fatalf("qq = %+v", cfg.Platforms.QQ)
 	}
 }

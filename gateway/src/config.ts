@@ -21,7 +21,7 @@ export type GatewayConfig = {
   http: { listen: string };
   platforms: {
     telegram?: { botToken: string };
-    qq?: { appId: string; clientSecret: string; sandbox: boolean };
+    qq?: { appId: string; clientSecret: string; sandbox: boolean; markdown: boolean };
   };
   console?: { inputFd: number; outputFd: number };
 };
@@ -105,6 +105,7 @@ export function parseConfig(file: string, text: string): GatewayConfig {
       appId: r.str(qq, "appId", "platforms.qq."),
       clientSecret: r.str(qq, "clientSecret", "platforms.qq."),
       sandbox: r.bool(qq, "sandbox", "platforms.qq."),
+      markdown: r.bool(qq, "markdown", "platforms.qq."),
     };
   }
   let consoleCfg: GatewayConfig["console"];

@@ -121,10 +121,13 @@ export class GatewayTelegramAdapter extends TelegramAdapter {
 
 export class GatewayQQAdapter extends QQAdapter {
   readonly status: StatusRecorder;
+  /** `[platforms.qq] markdown`: text goes out as native markdown messages, which need a platform permission. */
+  readonly markdown: boolean;
   private readonly loop: ConnectLoop;
 
-  constructor(config: QQSocketModeAdapterConfig, status: StatusRecorder, logger: PinoLogger) {
+  constructor(config: QQSocketModeAdapterConfig, markdown: boolean, status: StatusRecorder, logger: PinoLogger) {
     super(config);
+    this.markdown = markdown;
     this.status = status;
     this.loop = new ConnectLoop(status, logger);
   }
@@ -209,6 +212,7 @@ export class Platforms {
           userName: cfg.userName,
           logger: observedLogger(chatLogger.child("qq"), qqStatusObserver(status, () => this.stopping)),
         },
+        cfg.platforms.qq.markdown,
         status,
         logger,
       );

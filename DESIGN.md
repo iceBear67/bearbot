@@ -47,7 +47,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 ### 0.3 实现约束
 
-- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.1.13、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
+- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.2.0、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
 - 出错时就地报错退出，不做静默的降级处理。
 - 测试全部使用真实组件，不使用 mock（第 16 节）。
 - 仓库中已有实现：Go 编写的 `bearbotd`（`daemon/`）、gateway（`gateway/`）、`bearbot-im` 扩展、bearbot SDK、recovery 扩展、三个技能、recovery profile 模板、示例配置与 Dockerfile（目录见第 14 节）。企业微信适配器（第 6.2.3 节，`packages/chat-adapter-wecom`）还没有实现：配置校验拒绝 `[platforms.wecom] enabled = true`，gateway 中也没有引用它的代码。
@@ -154,7 +154,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | 平台 | 使用的包 | 接入方式 | 斜杠命令 | 说明 |
 |---|---|---|---|---|
 | Telegram | `@chat-adapter/telegram` 4.43.0（官方） | 长轮询（`mode: "polling"`），不需要公网地址。轮询启动时调用 `deleteWebhook`，它失败时 `initialize()` 拒绝；轮询开始之后的请求错误由适配器自己按退避一直重试 | 支持：消息以 `bot_command` 实体开头时作为 `onSlashCommand` 事件发出，**不会**进入消息处理器；没有注册处理器时被丢弃（实测）。没有这个实体的纯文本 `/bb help` 不是命令 | 会话串 id：私聊 `telegram:<userId>`，群 `telegram:<chatId>`，论坛话题 `telegram:<chatId>:<topicId>`。群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或把机器人设为群管理员。适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（传入 `userName` 会使提及判断失效，实测）。超过 4096 字符的文本被截断并加上 `...`，不分段，文件的说明文字截断到 1024 字符，所以长文本由 gateway 分段（第 6.8 节）。以群组或频道名义发送的消息的发送者见第 6.5 节 |
-| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.1.13（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，验证方案中包含对真实 QQ 服务的测试 |
+| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.2.0（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，验证方案中包含对真实 QQ 服务的测试 |
 | 企业微信 | 计划自研 `@bearbot/chat-adapter-wecom`，基于腾讯官方 `@wecom/aibot-node-sdk` 1.0.7 | 智能机器人 WebSocket 长连接，不需要公网地址 | 适配器自己解析：去掉开头的 @ 后以 `/` 开头的文本交给 `processSlashCommand` | 尚未实现：配置校验拒绝 `[platforms.wecom] enabled = true`。现有的企业微信社区适配器缺少私聊与提及判断，因此自己编写（第 6.2.3 节）。平台限制：群聊中只能收到 @ 机器人的消息 |
 
 QQ 平台的身份说明：QQ 开放平台在群内给出的是 `member_openid`，在单聊中给出的是 `user_openid`，两者不同。所以同一个人在 QQ 群和 QQ 单聊中是两个身份，要成为管理员需要分别领取令牌，或由已有管理员用 `/bb admin add` 添加。
@@ -897,7 +897,7 @@ daemon 在启动顺序第 5 步（第 5.2 节）判断控制台是否启用：`[
 
 ## 6. gateway
 
-TypeScript（ESM），Node 24，用 TypeScript 7.0.2 编译（`rootDir` 为 `src`，输出 `dist/main.js`），代码位于 `/opt/bearbot/gateway`。运行时依赖：`chat`、`@chat-adapter/telegram`、`@chat-adapter/shared`（4.43.0）、`@amatsuka/chat-adapter-qq`（0.1.13）、`better-sqlite3`、`drizzle-orm`（迁移用 `drizzle-kit` 生成，放在 `gateway/drizzle/`，启动时用 `drizzle-orm/better-sqlite3/migrator` 执行，目录按模块自身的位置找到）、`pino`、`hono` 与 `@hono/node-server`（只在配置了 webhook 模式时启用 HTTP 服务）、`string-argv` 与 `yargs-parser`（`/bb` 参数解析）、`@scure/base`（令牌的 base32 编码）、`mime`（按文件名取得 MIME 类型）。开发依赖：`typescript`、`@types/node`、`@types/better-sqlite3`、`@types/yargs-parser`、`drizzle-kit`、`vitest`、`@chat-adapter/state-memory`（只用于对比测试）。
+TypeScript（ESM），Node 24，用 TypeScript 7.0.2 编译（`rootDir` 为 `src`，输出 `dist/main.js`），代码位于 `/opt/bearbot/gateway`。运行时依赖：`chat`、`@chat-adapter/telegram`、`@chat-adapter/shared`（4.43.0）、`@amatsuka/chat-adapter-qq`（0.2.0）、`better-sqlite3`、`drizzle-orm`（迁移用 `drizzle-kit` 生成，放在 `gateway/drizzle/`，启动时用 `drizzle-orm/better-sqlite3/migrator` 执行，目录按模块自身的位置找到）、`pino`、`hono` 与 `@hono/node-server`（只在配置了 webhook 模式时启用 HTTP 服务）、`string-argv` 与 `yargs-parser`（`/bb` 参数解析）、`@scure/base`（令牌的 base32 编码）、`mime`（按文件名取得 MIME 类型）。开发依赖：`typescript`、`@types/node`、`@types/better-sqlite3`、`@types/yargs-parser`、`drizzle-kit`、`vitest`、`@chat-adapter/state-memory`（只用于对比测试）。
 
 进程：`<node> dist/main.js --config <gateway.json>`，命令行只接受 `--config`。`gateway.json`（第 5.2 节）按字段严格校验，`platforms` 中只能有 `telegram`、`qq`，`logLevel` 只能是 `debug`、`info`、`warn`、`error`，出错时退出。日志为 pino 的 JSON 行，写到 stdout（daemon 写入 `gateway.log`），每行带 `component: "gateway"`，chat-sdk 的子日志另带 `scope`。
 
@@ -913,7 +913,7 @@ const bot = new Chat({
       botToken, mode: "polling", mentionOnReply: true, logger: chatLogger.child("telegram"),
       longPolling: { allowedUpdates: ["message", "edited_message", "callback_query", "message_reaction"] },
     }),
-    qq: new GatewayQQAdapter({ appId, clientSecret, mode: "socket", sandbox, userName: cfg.userName, logger }),
+    qq: new GatewayQQAdapter({ appId, clientSecret, mode: "socket", sandbox, userName: cfg.userName, logger }, markdown),
     console: createConsoleAdapter({ inputFd, outputFd, filesDir, workspaceDir, userName: cfg.userName, logger }),
   },
   state: createSqliteState(db),
@@ -952,7 +952,7 @@ await bot.initialize();
 
 - 使用 `mode: "socket"`。被动回复所需的 `msg_id`、`msg_seq` 由适配器维护。首次连接失败时由第 6.1 节的循环重试。
 - QQ 开放平台限制被动回复的时间窗口，并限制主动消息的数量。超过窗口的长任务回复可能发送失败。发送失败时 gateway 把错误返回给 `bearbot-im`，再作为诊断交给 agent，同时通知管理员。
-- 发出的文本以纯文本（`{raw}`）发送，编辑也是：QQ 的 markdown 消息需要大多数机器人都没有的平台权限。卡片原样交给适配器。文本不分段。
+- `bearbot-im` 发出与编辑的 markdown 文本按 `[platforms.qq] markdown` 发送：为 true（默认）时以 markdown 消息（`{markdown}`，`msg_type` 2）发送，这需要平台单独开通的权限；为 false 时以纯文本（`{raw}`）发送。gateway 自己的纯文本总是以 `{raw}` 发送。卡片原样交给适配器。文本不分段。
 - `message.text` 去掉了 markdown 标记，所以令牌、`/bb` 与斜杠命令参数的识别使用 `raw.content`，群消息先去掉开头的提及标记（`<@…>`、`<qqbot-at-user id="…"/>`、`@名称`）。交给 agent 的正文仍为 `message.text`。
 - 附件只有 URL，gateway 用 `@chat-adapter/shared` 的 `downloadAttachment` 下载（第 6.5 节第 7 步）。
 - 引用：QQ 用引用索引（`REFIDX_…`）标识可以被引用的消息。入站消息自己的索引在 `message_scene.ext` 的 `msg_idx=` 项中，gateway 把它写入 `message_log.quote_id`（`kind` 为 `message` 与 `command` 的行）；QQ 没有给出时为空。机器人发出的消息的索引在发送响应的 `ext_info.ref_idx` 中，同样写入这一列。
@@ -1174,7 +1174,7 @@ Telegram 消息的发送者：消息带有 `sender_chat` 时（匿名的群管�
 - `target` 是会话串 id 或频道 id。它所属的频道（由对应平台适配器的 `channelIdFromThreadId` 计算）已绑定且可见，或者它等于某个管理员的 `notify_thread` 时才允许，其他目标返回错误“目标 <target> 不是已绑定的频道，也不是管理员的通知会话串”。`edit`、`delete`、`react` 按 `ref` 中的会话串检查。控制台没有启用时，`console:main` 不是有效的目标。
 - `files[].path` 为绝对路径或相对工作区目录的路径。gateway 先用 `realpath` 确认它在工作区目录内，再以 `O_NOFOLLOW|O_NONBLOCK` 打开，从 `/proc/self/fd` 读出实际打开的路径，再次确认它在工作区内并且是普通文件，然后从这个文件描述符读取，作为 `FileUpload` 发送；文件名默认为路径的最后一段，MIME 类型按文件名取得。不满足时返回“文件不在工作区目录内”“不是普通文件”或“无法读取文件”。
 - `card` 是 chat-sdk 的 `CardElement` JSON（`type` 为 `card`），在文本之后作为单独的一条消息发送。
-- 文本拆分：Telegram 的 markdown 文本按 `TelegramFormatConverter().fromMarkdown(片段).length <= 4096` 分段，gateway 自己的纯文本按长度 4096 分段；尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开，超长的单行被截开。带文件时，文件每 10 个一组（媒体组）；文本（按同样的方式计算长度）不超过 1024 个字符时作为第一组的说明文字，否则先发送分段后的文本，再发送不带说明文字的文件。QQ 与控制台的文本不分段，作为一条消息发送；QQ 的文本以纯文本发送（第 6.2.2 节）。
+- 文本拆分：Telegram 的 markdown 文本按 `TelegramFormatConverter().fromMarkdown(片段).length <= 4096` 分段，gateway 自己的纯文本按长度 4096 分段；尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开，超长的单行被截开。带文件时，文件每 10 个一组（媒体组）；文本（按同样的方式计算长度）不超过 1024 个字符时作为第一组的说明文字，否则先发送分段后的文本，再发送不带说明文字的文件。QQ 与控制台的文本不分段，作为一条消息发送；QQ 的 markdown 文本按 `[platforms.qq] markdown` 以 markdown 消息或纯文本发送（第 6.2.2 节）。
 - `replyTo` 是要引用回复的消息 id（`message_log` 中的 `message_id`，也就是交给 `bearbot-im` 的消息的 `id`），只有第一条发出的消息带引用：
   - Telegram：作为 `reply_parameters` 交给适配器，适配器同时设置 `allow_sending_without_reply`，被引用的消息已经删除或不存在时消息照常发出、不带引用。
   - QQ：先在目标会话串中查找这条消息（`kind` 为 `message` 或 `command` 的行，同一个 id 有多行时取最新的一行），找不到时返回 `-32000`“找不到要回复的消息：<id>”，什么也不发送；找到但 `quote_id` 为空（QQ 没有给出引用索引）时照常发送、不带引用，并记一条 info 日志；否则用适配器的 `postQQMessage` 发送，带 `message_reference: {message_id: <quote_id>, ignore_get_message_error: true}`，与 Telegram 一样，QQ 找不到被引用的消息时消息照常发出。
@@ -1914,6 +1914,7 @@ enabled = false
 app_id = "${QQ_BOT_APP_ID}"
 client_secret = "${QQ_BOT_CLIENT_SECRET}"
 sandbox = false
+markdown = true                 # 文本以 markdown 消息发送（需要平台开通的权限）；false 时以纯文本发送（第 6.2.2 节）
 
 [platforms.wecom]
 enabled = false                 # 企业微信适配器尚未实现，设为 true 时 daemon 拒绝启动

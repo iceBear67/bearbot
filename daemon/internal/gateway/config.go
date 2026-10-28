@@ -24,6 +24,7 @@ type qqJSON struct {
 	AppID        string `json:"appId"`
 	ClientSecret string `json:"clientSecret"`
 	Sandbox      bool   `json:"sandbox"`
+	Markdown     bool   `json:"markdown"`
 }
 
 type platformsJSON struct {
@@ -86,7 +87,12 @@ func BuildFile(p layout.Paths, u *layout.Users, cfg *config.Config, console bool
 		f.Platforms.Telegram = &telegramJSON{BotToken: cfg.Platforms.Telegram.BotToken}
 	}
 	if cfg.Platforms.QQ.Enabled {
-		f.Platforms.QQ = &qqJSON{AppID: cfg.Platforms.QQ.AppID, ClientSecret: cfg.Platforms.QQ.ClientSecret, Sandbox: cfg.Platforms.QQ.Sandbox}
+		f.Platforms.QQ = &qqJSON{
+			AppID:        cfg.Platforms.QQ.AppID,
+			ClientSecret: cfg.Platforms.QQ.ClientSecret,
+			Sandbox:      cfg.Platforms.QQ.Sandbox,
+			Markdown:     cfg.Platforms.QQ.Markdown,
+		}
 	}
 	if console {
 		f.Console = &consoleJSON{InputFd: ConsoleInputFd, OutputFd: ConsoleOutputFd}

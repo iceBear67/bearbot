@@ -94,6 +94,7 @@ type QQ struct {
 	AppID        string
 	ClientSecret string
 	Sandbox      bool
+	Markdown     bool
 }
 
 // WeCom is the [platforms.wecom] section. Enabled is always false after validation: the adapter is not implemented
@@ -209,6 +210,7 @@ type rawQQ struct {
 	AppID        string `toml:"app_id"`
 	ClientSecret string `toml:"client_secret"`
 	Sandbox      bool   `toml:"sandbox"`
+	Markdown     bool   `toml:"markdown"`
 }
 
 type rawWeCom struct {
@@ -272,7 +274,7 @@ func defaults() rawConfig {
 		},
 		Platforms: rawPlatforms{
 			Telegram: rawTelegram{Enabled: true, BotToken: "${TELEGRAM_BOT_TOKEN}"},
-			QQ:       rawQQ{Enabled: false, AppID: "${QQ_BOT_APP_ID}", ClientSecret: "${QQ_BOT_CLIENT_SECRET}"},
+			QQ:       rawQQ{Enabled: false, AppID: "${QQ_BOT_APP_ID}", ClientSecret: "${QQ_BOT_CLIENT_SECRET}", Markdown: true},
 			WeCom:    rawWeCom{Enabled: false, BotID: "${WECOM_BOT_ID}", Secret: "${WECOM_BOT_SECRET}"},
 			Console:  rawConsole{Enabled: true},
 		},
@@ -593,6 +595,7 @@ func build(raw *rawConfig) (*Config, error) {
 			AppID:        raw.Platforms.QQ.AppID,
 			ClientSecret: raw.Platforms.QQ.ClientSecret,
 			Sandbox:      raw.Platforms.QQ.Sandbox,
+			Markdown:     raw.Platforms.QQ.Markdown,
 		},
 		WeCom:   WeCom{Enabled: false, BotID: raw.Platforms.WeCom.BotID, Secret: raw.Platforms.WeCom.Secret},
 		Console: Console{Enabled: raw.Platforms.Console.Enabled},
