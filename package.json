@@ -1,0 +1,24 @@
+{
+  "name": "bearbot",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "gateway",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w gateway"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@types/node": "^24.19.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  },
+  "allowScripts": {
+    "@google/genai": false,
+    "better-sqlite3": false,
+    "esbuild": false,
+    "protobufjs": false
+  }
+}

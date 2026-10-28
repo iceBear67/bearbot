@@ -1,0 +1,36 @@
+{
+  "name": "@bearbot/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "db:generate": "drizzle-kit generate",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@amatsuka/chat-adapter-qq": "0.1.13",
+    "@chat-adapter/shared": "4.43.0",
+    "@chat-adapter/telegram": "4.43.0",
+    "@hono/node-server": "2.1.5",
+    "@scure/base": "2.4.0",
+    "better-sqlite3": "13.0.3",
+    "chat": "4.43.0",
+    "drizzle-orm": "0.45.4",
+    "hono": "4.13.14",
+    "mime": "4.1.1",
+    "pino": "10.4.0",
+    "string-argv": "0.4.0",
+    "yargs-parser": "22.0.0"
+  },
+  "devDependencies": {
+    "@chat-adapter/state-memory": "4.43.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "^24.19.2",
+    "@types/yargs-parser": "21.0.3",
+    "drizzle-kit": "0.31.11",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

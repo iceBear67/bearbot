@@ -1,0 +1,88 @@
+# bearbot 配置文件示例。复制到挂载目录 /bearbot/config/bearbot.toml 后修改。
+# 时长用 Go time.ParseDuration 的写法（例如 "90s"、"10m"、"1h30m"），另外支持 d 后缀（例如 "30d"）。
+# 字符串中的 ${变量名} 从容器的环境变量取值，变量不存在时 daemon 启动失败。
+
+[daemon]
+log_level = "info"              # 日志级别
+shutdown_grace = "90s"          # 收到 SIGTERM 或 SIGINT 后等待 agent 当前回合结束的最长时间；建议 docker run --stop-timeout 120
+term_grace = "10s"              # 停止进程时，关闭 stdin 后等待退出、发送 SIGTERM 后等待退出的时长
+
+[agent]
+start_timeout = "60s"           # 启动后等待 get_state 响应的最长时间，超过记为启动失败
+ready_timeout = "30s"           # 等待 bearbot-im 连接 gateway 并调用 bridge/ready 的最长时间
+heartbeat_interval = "30s"      # 心跳 get_state 的间隔
+rpc_timeout = "30s"             # 每个 RPC 请求等待响应的最长时间；心跳超时说明事件循环被阻塞，daemon 终止进程树
+crash_limit = 3                 # crash_window 内意外退出达到该次数即建立故障
+crash_window = "10m"
+probation = "10m"               # 应用、修复、回滚、恢复运行之后的观察期，期间意外退出直接建立故障
+drain_timeout = "30m"           # 应用后等待当前回合结束的最长时间，超过时先中止回合再重启
+
+[agent.env]
+# agent 进程、试运行与 bearbotd login 中的环境变量
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"      # ${} 从容器环境变量取值，变量不存在时 daemon 启动失败
+
+[gateway]
+user_name = "bearbot"           # chat-sdk 中 bot 的名称
+crash_limit = 5                 # gateway 意外退出后按 1 秒到 60 秒的间隔重启；重启这么多次仍未恢复时执行 [maintenance] on_enter，之后每 60 秒重启一次
+token_ttl = "10m"               # 管理员令牌的默认有效期
+replay_window = "10m"           # 补发时早于这个时长的消息只作为旁观上下文，不触发回复
+message_retention = "30d"       # 消息记录与控制台文件的保留时长
+attachment_timeout = "60s"      # 下载一个附件的最长时间，超时的附件记为下载失败
+image_max_bytes = 5242880       # 不超过这个大小的图片同时以 base64 交给模型
+maintenance_notice = "bearbot 正在修复，暂时无法回复。"   # 故障、修复、回滚、维护期间对触发消息的回复，每个频道每次维护期间只回复一次
+[gateway.http]
+listen = ""                     # 非空时启动 HTTP 服务，用于 webhook 模式，例如 "0.0.0.0:8080"；需要在 docker run 中映射端口
+
+[platforms.telegram]
+enabled = true
+bot_token = "${TELEGRAM_BOT_TOKEN}"   # BotFather 给出的令牌；群内要收到普通消息，需要用 /setprivacy 关闭隐私模式，或把机器人设为群管理员
+
+[platforms.qq]
+enabled = false
+app_id = "${QQ_BOT_APP_ID}"           # QQ 开放平台的机器人 AppID
+client_secret = "${QQ_BOT_CLIENT_SECRET}"
+sandbox = false                       # 使用 QQ 的沙箱环境
+
+[platforms.wecom]
+enabled = false                 # 企业微信适配器尚未实现，设为 true 时 daemon 拒绝启动
+bot_id = "${WECOM_BOT_ID}"
+secret = "${WECOM_BOT_SECRET}"
+
+[platforms.console]
+enabled = true                  # 标准输入是终端或管道时启用控制台（DESIGN.md 第 5.13 节）
+
+[bridge]
+observe_limit = 30              # 每个会话串保留的旁观消息条数
+hold_warn_after = "10m"         # 消息被中间件扣留超过这个时长时产生诊断
+error_notice = "处理时出现错误，已通知管理员。"   # member 回合出错时回复给用户的文字
+
+[classifier]
+enabled = true                  # 数据库中没有开关设置时的值
+model = "anthropic/claude-haiku-4-5-20251001"   # 判断 member 回合工具调用的模型，<服务>/<模型 id>
+timeout = "15s"                 # 一次判断的最长时间，超时的调用被拒绝
+rules_max_bytes = 32768         # CLASSIFIER.md 的大小上限
+
+[recovery]
+timeout = "30m"                 # daemon 每次向 recovery 发出提示（故障报告、要求报告的提醒、检查或启动失败之后的新提示）后等待修复报告的最长时间，超过时中止这一轮并进入维护状态
+attempts = 2                    # 每次修复流程中最多接受几次 recovery 的 fixed 报告，用尽后进入维护状态；管理员每次执行 repair 时重新计数
+[recovery.env]
+# recovery 进程的环境变量。recovery 使用独立的 profile，不读取 agent 的 auth.json。
+# /bearbot/config/recovery/ 中存在的 settings.json、models.json、auth.json 替换 recovery profile 模板中的同名文件。
+# 替换用的 settings.json 必须保留 defaultProvider：daemon 用 pi auth check --provider <defaultProvider> 检查 recovery 的凭据，
+# 没有 defaultProvider 或者这个服务没有可用的凭据时记为“recovery 无法运行”，直接进入维护状态。
+ANTHROPIC_API_KEY = "${BEARBOT_RECOVERY_API_KEY}"   # 不设置时需要 /bearbot/config/recovery/auth.json
+
+[maintenance]
+# 每一项是一条 shell 命令行，按顺序以 root 身份用 /bin/sh -c 执行，工作目录为 /bearbot/config，
+# PATH 固定为 /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin（daemon 设置了 TZ、LANG 时也一并传入）。
+# 每条命令最长执行 hook_timeout；退出码非零或超时只写入 daemon.log，后面的命令照常执行。
+# 传给命令的环境变量：
+#   BEARBOT_EVENT        maintenance_enter（进入维护状态）、maintenance_exit（退出维护状态），
+#                        或 gateway_crash（gateway 意外退出的次数超过 [gateway] crash_limit，这时执行 on_enter）
+#   BEARBOT_INCIDENT_ID  故障 id；没有故障时（例如回滚出错、gateway_crash）为空
+#   BEARBOT_REASON       进入维护状态的原因（退出时也是这个原因）；gateway_crash 时为 gateway 反复退出的原因
+#   BEARBOT_REPORT       进入时为发给管理员的通知内容；退出时为退出的方式（例如“管理员执行 resume”）；
+#                        gateway_crash 时为 gateway.log 的最后 50 行
+on_enter = []                   # 进入维护状态与 gateway_crash 时执行的命令，例如 ["/bearbot/config/hooks/notify.sh"]
+on_exit = []                    # 退出维护状态时执行的命令
+hook_timeout = "30s"            # 每条命令的最长执行时间

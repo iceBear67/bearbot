@@ -1,0 +1,7 @@
+# The image installs dependencies and builds the gateway and the daemon itself; host copies must not enter the
+# build context (COPY gateway/ would otherwise bring a host-built gateway/dist into the node-build stage).
+.git
+**/node_modules
+gateway/dist
+daemon/bin
+**/*.log

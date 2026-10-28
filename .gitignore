@@ -1,0 +1,4 @@
+node_modules/
+gateway/dist/
+daemon/bin/
+*.log

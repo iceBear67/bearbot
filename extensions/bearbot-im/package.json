@@ -1,0 +1,9 @@
+{
+  "name": "bearbot-im",
+  "private": true,
+  "type": "module",
+  "description": "bearbot 对接扩展：把 pi 接入 gateway，并向其他扩展提供 bearbot API",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
