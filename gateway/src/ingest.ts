@@ -105,11 +105,14 @@ export function channelNameOf(platform: string, raw: unknown): string | null {
   return null;
 }
 
+/** QQ quote index of the message itself: the `msg_idx=` item of `message_scene.ext` (DESIGN 6.2.2). */
+function qqQuoteIdOf(raw: unknown): string | null {
+  const item = (raw as QQRawMessage).message_scene?.ext?.find((e) => e.startsWith("msg_idx="));
+  return item !== undefined ? item.slice("msg_idx=".length) : null;
+}
+
+/** replyTo of a Telegram or console message; QQ quotes are resolved by `Ingest.replyTo`. */
 function replyToOf(platform: string, message: Message): WireMessage["replyTo"] {
-  if (platform === "qq") {
-    const quoted = (message.raw as QQRawMessage)._chat_quoted_message;
-    return quoted ? { id: quoted.msgIdx, sender: "", name: "", text: quoted.content ?? "" } : undefined;
-  }
   if (platform === "telegram" && isTopicRootReply(message.raw as TelegramMessage)) {
     return undefined;
   }
@@ -219,6 +222,30 @@ export class Ingest {
     return this.deps.repo.isAdmin(identity) ? "admin" : "member";
   }
 
+  /**
+   * replyTo of an inbound message. A QQ quote gives only the quote index and text of the quoted message, so the
+   * message id and sender come from the message_log row with that index; without such a row they are empty (DESIGN 6.2.2).
+   */
+  private replyTo(adapter: Adapter, threadId: string, message: Message): WireMessage["replyTo"] {
+    if (adapter.name !== "qq") {
+      return replyToOf(adapter.name, message);
+    }
+    const quoted = (message.raw as QQRawMessage)._chat_quoted_message;
+    if (!quoted) {
+      return undefined;
+    }
+    const text = quoted.content ?? "";
+    const row = this.deps.log.findByQuoteId(threadId, quoted.msgIdx);
+    if (!row) {
+      return { id: "", sender: "", name: "", text };
+    }
+    if (row.direction === "out") {
+      return { id: row.messageId, sender: "qq:bot", name: adapter.userName, text };
+    }
+    const { sender } = row.payload as InboundPayload;
+    return { id: row.messageId, sender: sender.id, name: sender.name, text };
+  }
+
   /** onDirectMessage / onNewMention / onNewMessage. */
   async message(thread: Thread, message: Message): Promise<void> {
     const adapter = thread.adapter;
@@ -298,11 +325,11 @@ export class Ingest {
       attachments: [],
       trigger,
     };
-    const replyTo = replyToOf(platform, message);
+    const replyTo = this.replyTo(adapter, thread.id, message);
     if (replyTo) {
       payload.replyTo = replyTo;
     }
-    this.record("message", payload, binding.channelId, message.attachments);
+    this.record("message", payload, binding.channelId, message.attachments, platform === "qq" ? qqQuoteIdOf(message.raw) : null);
   }
 
   /** onSlashCommand: thread = event.channel.id (contracts 9.4). */
@@ -352,11 +379,11 @@ export class Ingest {
       attachments: [],
       trigger: true,
     };
-    const replyTo = parsed ? replyToOf(platform, parsed) : undefined;
+    const replyTo = parsed ? this.replyTo(adapter, threadId, parsed) : undefined;
     if (replyTo) {
       payload.replyTo = replyTo;
     }
-    this.record("command", payload, channelId, parsed?.attachments ?? []);
+    this.record("command", payload, channelId, parsed?.attachments ?? [], platform === "qq" ? qqQuoteIdOf(event.raw) : null);
   }
 
   /** onAction: kind "action", trigger false. */
@@ -394,6 +421,7 @@ export class Ingest {
       },
       channelId,
       [],
+      null,
     );
   }
 
@@ -426,6 +454,7 @@ export class Ingest {
       },
       channelId,
       [],
+      null,
     );
   }
 
@@ -478,7 +507,7 @@ export class Ingest {
   }
 
   /** Steps 6-8: insert in a transaction, download attachments in the background, deliver, maintenance notice. */
-  private record(kind: MessageKind, payload: InboundPayload, channelId: string, sources: Attachment[]): void {
+  private record(kind: MessageKind, payload: InboundPayload, channelId: string, sources: Attachment[], quoteId: string | null): void {
     const { log, delivery, agentState, outbound, cfg } = this.deps;
     const names = new Set<string>();
     payload.attachments = sources.map((a, i): WireAttachment => {
@@ -502,6 +531,7 @@ export class Ingest {
       messageId: payload.id,
       payload,
       createdAt: Date.now(),
+      quoteId,
     });
     if (sources.length > 0) {
       void this.download(seq, payload, sources);

@@ -151,6 +151,8 @@ function observedBody(message: InboundMessage): string {
 /** One line (plus attachment lines) inside `<observed>`. */
 export function renderObservedLine(message: InboundMessage, refDate: string): string {
   const marks: string[] = [];
+  // The id lets the agent quote the message with im_send replyTo; action and reaction ids belong to other messages.
+  if ((message.kind === "message" || message.kind === "command") && message.id !== "") marks.push(`（消息 ${message.id}）`);
   if (message.sender.isBot) marks.push("（机器人）");
   if (message.edited) marks.push("（已编辑）");
   if (message.stale) marks.push("（过期）");

@@ -53,6 +53,8 @@ export const messageLog = sqliteTable(
     messageId: text("message_id").notNull(),
     payload: text("payload", { mode: "json" }).$type<InboundPayload | OutboundPayload>().notNull(),
     createdAt: integer("created_at").notNull(),
+    // QQ quote index (REFIDX_…) of the message; null on other platforms and when QQ gave none (DESIGN 6.2.2).
+    quoteId: text("quote_id"),
   },
   (t) => [
     check("message_log_direction", sql`${t.direction} in ('in', 'out')`),
@@ -60,6 +62,8 @@ export const messageLog = sqliteTable(
     index("message_log_created_at").on(t.createdAt),
     index("message_log_channel").on(t.channelId, t.seq),
     index("message_log_thread").on(t.threadId, t.seq),
+    index("message_log_message").on(t.threadId, t.messageId),
+    index("message_log_quote").on(t.threadId, t.quoteId),
   ],
 );
 

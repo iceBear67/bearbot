@@ -61,7 +61,7 @@ describe("turn text of DESIGN 7.3", () => {
       `<bearbot-turn role="member" origin="telegram:-100123">`,
       `<channel id="telegram:-100123" platform="telegram" name="测试群" type="group"/>`,
       "<observed>",
-      "[14:01] Bob (telegram:456): 今天天气怎么样",
+      "[14:01] Bob (telegram:456)（消息 -100123:888）: 今天天气怎么样",
       "</observed>",
       `<message id="-100123:889" from="Alice (telegram:123)" sender-role="admin" time="2026-10-26T14:02:11+08:00" mention="true">`,
       `<reply-to from="Bob (telegram:456)">今天天气怎么样</reply-to>`,
@@ -86,10 +86,10 @@ describe("turn text of DESIGN 7.3", () => {
   });
 
   test("stale messages appear only in observed, marked as old", () => {
-    const stale = messageFromWire(wire({ text: "很久以前的问题", stale: true, trigger: true, time: "2026-10-20T09:00:00+08:00" }));
+    const stale = messageFromWire(wire({ id: "-100123:700", text: "很久以前的问题", stale: true, trigger: true, time: "2026-10-20T09:00:00+08:00" }));
     const fresh = messageFromWire(wire({ text: "现在的问题", time: "2026-10-26T14:02:11+08:00" }));
     const text = renderMessageTurn({ role: "member", origin: "telegram:-100123", messages: [stale, fresh], observed: [] });
-    expect(text).toContain("<observed>\n[2026-10-20 09:00] Alice (telegram:123)（过期）: 很久以前的问题\n</observed>");
+    expect(text).toContain("<observed>\n[2026-10-20 09:00] Alice (telegram:123)（消息 -100123:700）（过期）: 很久以前的问题\n</observed>");
     expect(text.match(/<message /g)).toHaveLength(1);
     expect(text).toContain("现在的问题");
   });

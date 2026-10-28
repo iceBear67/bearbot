@@ -56,6 +56,7 @@ export interface OutboundReply {
   target: string;
   markdown: string;
   files: string[];
+  replyTo?: string;           // id of the message to quote (Telegram, QQ); set by im_send or post()
   turn: TurnInfo | null;      // null for im_send and post()
 }
 
@@ -100,7 +101,7 @@ export interface BearbotApi {
   useOutbound(middleware: OutboundMiddleware, options: { order: number }): Unsubscribe;
 
   prompt(request: PromptRequest): Promise<void>;          // enters the dispatch queue like chat messages
-  post(target: string, message: { markdown?: string; files?: string[]; card?: unknown }): Promise<{ ref: string }>;
+  post(target: string, message: { markdown?: string; files?: string[]; card?: unknown; replyTo?: string }): Promise<{ ref: string }>;
   edit(ref: string, message: { markdown?: string; card?: unknown }): Promise<void>;
   delete(ref: string): Promise<void>;
   react(ref: string, emoji: string, remove?: boolean): Promise<void>;

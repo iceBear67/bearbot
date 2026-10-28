@@ -594,6 +594,7 @@ export class Bridge {
     if (reply.markdown !== "") params.markdown = reply.markdown;
     if (reply.files.length > 0) params.files = reply.files.map((file) => ({ path: resolve(this.config.workspaceDir, file) }));
     if (card !== undefined) params.card = card;
+    if (reply.replyTo !== undefined) params.replyTo = reply.replyTo;
     return this.gateway.post(params);
   }
 
@@ -662,6 +663,7 @@ export class Bridge {
         live();
         assertNotTrial(trial, "post");
         const reply: OutboundReply = { target, markdown: message.markdown ?? "", files: message.files ?? [], turn: null };
+        if (message.replyTo !== undefined) reply.replyTo = message.replyTo;
         const result = await this.outbound.run(reply, (current) => this.postReply(current, message.card)).result;
         if (result.kind === "dropped") throw new Error(`出站中间件 ${result.by} 丢弃了这条消息：${result.reason}`);
         return { ref: result.ref };

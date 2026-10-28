@@ -432,4 +432,40 @@ export default function (pi: ExtensionAPI) {
     expect(restore).toHaveLength(1);
     expect(JSON.parse(restore[0])).toMatchObject({ turnId: record?.turnId, senders: ["console:operator"] });
   }, 300_000);
+
+  test("post() with replyTo: outbound middleware sees the quoted message id and the gateway accepts it", async () => {
+    const env = newRoot();
+    env.writeWorkspaceFile(".pi/extensions/inputs.ts", INPUTS);
+    env.writeWorkspaceFile(".pi/extensions/quote.ts", `import { appendFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { useBearbot } from ${JSON.stringify(SDK_FILE)};
+
+export default function (pi: ExtensionAPI) {
+  const bearbot = useBearbot(pi, { name: "e2e-quote" });
+  bearbot.useOutbound((reply, next) => {
+    if (reply.markdown === "e2e 引用回复") {
+      appendFileSync(join(bearbot.workspace.dir, "quotes.jsonl"), \`\${JSON.stringify({ target: reply.target, replyTo: reply.replyTo ?? null })}\\n\`);
+    }
+    next(reply);
+  }, { order: 1 });
+  bearbot.onMessage(async (msg) => {
+    if (msg.text === "引用我") await bearbot.post(msg.thread, { markdown: "e2e 引用回复", replyTo: msg.id });
+  });
+}
+`);
+    const d = await start(env);
+    await d.waitLine("控制台已连接", 90_000);
+    await d.waitRunning(90_000);
+    await d.waitReady(1, 60_000);
+
+    const mark = d.lines.length;
+    d.send("引用我");
+    // The console adapter has no reply call: the message is shown without a quote.
+    await d.waitLine("e2e 引用回复", 60_000, mark);
+    await waitFor("引用我 的回合文本", 60_000, () => inputs(env).some((text) => text.includes("引用我")));
+    const id = /<message id="([^"]+)"/.exec(inputs(env).find((text) => text.includes("引用我"))!)![1];
+    const quotes = env.readLog(join(env.workspace, "quotes.jsonl")).split("\n").filter((line) => line !== "").map((line) => JSON.parse(line));
+    expect(quotes).toEqual([{ target: "console:main", replyTo: id }]);
+  }, 300_000);
 });

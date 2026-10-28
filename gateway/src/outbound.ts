@@ -1,5 +1,6 @@
 import { closeSync, constants, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
+import { QQAdapter } from "@amatsuka/chat-adapter-qq";
 import { TelegramAdapter, TelegramFormatConverter } from "@chat-adapter/telegram";
 import type { Adapter, AdapterPostableMessage, CardElement, FileUpload, RawMessage } from "chat";
 import mime from "mime";
@@ -31,9 +32,12 @@ export type PostContent = {
   text?: string;
   card?: CardElement;
   files?: LoadedFile[];
-  /** Platform message id to reply to (Telegram only; the other adapters have no reply call). */
+  /** Platform message id to reply to (Telegram and QQ; the console adapter has no reply call). */
   replyTo?: string;
 };
+
+/** The part of a QQ send response that the adapter keeps in `raw` but does not type. */
+type QQSendResponse = { ext_info?: { ref_idx?: string } };
 
 type Part = { message: AdapterPostableMessage; text: string; files: LoadedFile[]; card?: CardElement };
 
@@ -288,11 +292,28 @@ export class Outbound {
         name: this.repo.binding(channelId)?.channelName ?? undefined,
         isDM: adapter.isDM?.(target) ?? false,
       };
+      // QQ quotes a message by its quote index, recorded in message_log when it was received or sent (DESIGN 6.8).
+      let quote: string | null = null;
+      if (content.replyTo && adapter instanceof QQAdapter) {
+        const row = this.log.findMessage(target, content.replyTo);
+        if (!row) {
+          throw new OutboundError(`找不到要回复的消息：${content.replyTo}`);
+        }
+        quote = row.quoteId;
+        if (quote === null) {
+          this.logger.info({ target, replyTo: content.replyTo }, "QQ gave no quote index for the replied-to message, sent without a quote");
+        }
+      }
       let first: string | null = null;
       for (const [i, part] of parts.entries()) {
         let sent: RawMessage<unknown>;
         if (i === 0 && content.replyTo && adapter instanceof TelegramAdapter) {
           sent = await adapter.postMessage(target, part.message, content.replyTo);
+        } else if (i === 0 && quote !== null && adapter instanceof QQAdapter) {
+          // Like Telegram's allow_sending_without_reply: a quoted message QQ no longer finds does not stop the send.
+          sent = await adapter.postQQMessage(target, part.message, {
+            messageReference: { message_id: quote, ignore_get_message_error: true },
+          });
         } else {
           sent = await adapter.postMessage(target, part.message);
         }
@@ -308,7 +329,8 @@ export class Outbound {
         if (part.card) {
           payload.card = part.card;
         }
-        this.log.insertOutbound({ threadId, channelId, messageId: sent.id, payload });
+        const quoteId = adapter instanceof QQAdapter ? ((sent.raw as QQSendResponse).ext_info?.ref_idx ?? null) : null;
+        this.log.insertOutbound({ threadId, channelId, messageId: sent.id, payload, quoteId });
         first ??= `${threadId}|${sent.id}`;
       }
       return first!;

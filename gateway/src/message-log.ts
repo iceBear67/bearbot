@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "./db/index.ts";
 import { messageLog } from "./db/schema.ts";
 import type { InboundPayload, MessageKind, OutboundPayload } from "./types.ts";
@@ -19,6 +19,7 @@ export class MessageLog {
     messageId: string;
     payload: InboundPayload;
     createdAt: number;
+    quoteId: string | null;
   }): number {
     return this.db.transaction((tx) => {
       const inserted = tx
@@ -30,7 +31,7 @@ export class MessageLog {
     });
   }
 
-  insertOutbound(row: { threadId: string; channelId: string; messageId: string; payload: OutboundPayload }): number {
+  insertOutbound(row: { threadId: string; channelId: string; messageId: string; payload: OutboundPayload; quoteId: string | null }): number {
     return this.db.transaction((tx) => {
       const inserted = tx
         .insert(messageLog)
@@ -63,6 +64,34 @@ export class MessageLog {
       before !== undefined ? lt(messageLog.seq, before) : undefined,
     );
     return this.db.select().from(messageLog).where(where).orderBy(desc(messageLog.seq)).limit(limit).all().reverse();
+  }
+
+  /** The newest message or command row of a thread with this platform message id (action and reaction rows carry the id of the message they belong to). */
+  findMessage(threadId: string, messageId: string): MessageRow | undefined {
+    return this.db
+      .select()
+      .from(messageLog)
+      .where(
+        and(
+          eq(messageLog.threadId, threadId),
+          eq(messageLog.messageId, messageId),
+          inArray(messageLog.kind, ["message", "command"]),
+        ),
+      )
+      .orderBy(desc(messageLog.seq))
+      .limit(1)
+      .get();
+  }
+
+  /** The newest row of a thread with this QQ quote index. */
+  findByQuoteId(threadId: string, quoteId: string): MessageRow | undefined {
+    return this.db
+      .select()
+      .from(messageLog)
+      .where(and(eq(messageLog.threadId, threadId), eq(messageLog.quoteId, quoteId)))
+      .orderBy(desc(messageLog.seq))
+      .limit(1)
+      .get();
   }
 
   /** Threads of a channel by last activity, newest first. */

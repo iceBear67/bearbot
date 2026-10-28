@@ -29,7 +29,7 @@ Run these from the repository root unless noted. Install dependencies with `npm 
 - Tests that need external services skip when their environment variables are missing:
   - OpenAI-compatible model: `BEARBOT_TEST_OPENAI_BASE_URL`, `_API_KEY`, `_MODEL` (written as provider `testprovider`)
   - Telegram: `BEARBOT_TEST_TELEGRAM_BOT_TOKEN`, `_CHAT_ID`
-  - QQ: `BEARBOT_TEST_QQ_APP_ID`, `_CLIENT_SECRET`
+  - QQ: `BEARBOT_TEST_QQ_APP_ID`, `_CLIENT_SECRET`; the quote test also needs `BEARBOT_TEST_QQ_GROUP_OPENID`
 
 ### Testing rules
 

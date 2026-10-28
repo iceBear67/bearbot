@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  bearbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PI_VERSION: latest
+        TYPESCRIPT_VERSION: latest
+        PYTHON_VERSION: '3.14'
+    container_name: bearbot
+    restart: unless-stopped
+    stop_grace_period: 120s
+    tty: true
+    stdin_open: true
+    tmpfs:
+      - /run/bearbot
+
+    volumes:
+      - ./local-test/profile:/bearbot/profile
+      - ./local-test/workspace:/bearbot/workspace
+      - ./local-test/config:/bearbot/config
+    env_file: .env
+    # Expose HTTP port if gateway.http is enabled in bearbot.toml
+    ports:
+      - "8080:8080"
+
+    # For local debugging with console
+    # stdin_open: true
+    # tty: true
+    # entrypoint: /bin/bash

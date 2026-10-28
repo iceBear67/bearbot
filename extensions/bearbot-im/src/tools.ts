@@ -85,19 +85,23 @@ export function registerTools(pi: ExtensionAPI, host: ToolsHost): void {
     name: "im_send",
     label: "IM 发送",
     description:
-      "向聊天发送消息或文件。target 默认为本轮的回复目标（origin），也可以是其他已绑定的频道或会话串（用 im_targets 查看）。files 为工作区内的文件路径（相对工作区目录或绝对路径）。只在需要发送文件、发送到其他频道或长任务中途汇报时使用；本轮的最终回复会自动发回，不需要用它发送。",
-    promptSnippet: "向聊天发送消息或文件（文件、其他频道、中途汇报）",
+      "向聊天发送消息或文件。target 默认为本轮的回复目标（origin），也可以是其他已绑定的频道或会话串（用 im_targets 查看）。files 为工作区内的文件路径（相对工作区目录或绝对路径）。replyTo 为要引用回复的消息 id（<message> 的 id、旁观消息中“（消息 …）”里的 id 或 im_history 中的 id），这条消息必须在 target 中。只在需要发送文件、发送到其他频道、长任务中途汇报或引用回复某条消息时使用；本轮的最终回复会自动发回，不需要用它发送，用它发出了本轮的回答时最终文本写 NO_REPLY。",
+    promptSnippet: "向聊天发送消息或文件（文件、其他频道、中途汇报、引用回复）",
     parameters: Type.Object({
       text: Type.Optional(Type.String({ description: "markdown 文本" })),
       files: Type.Optional(Type.Array(Type.String(), { description: "要发送的文件路径" })),
       target: Type.Optional(Type.String({ description: "会话串 id 或频道 id，默认为本轮的 origin" })),
+      replyTo: Type.Optional(Type.String({ description: "要引用回复的消息 id；不填时不引用" })),
     }),
     async execute(_id, params) {
       const target = params.target ?? host.turn()?.origin ?? null;
       if (target === null) throw new Error("没有发送目标：本轮没有回复目标，请指定 target（可以用 im_targets 查看）");
       const files = params.files ?? [];
       if ((params.text ?? "").trim() === "" && files.length === 0) throw new Error("text 与 files 不能同时为空");
-      const result = await host.sendOutbound({ target, markdown: params.text ?? "", files, turn: null });
+      if (params.replyTo === "") throw new Error("replyTo 不能为空字符串");
+      const reply: OutboundReply = { target, markdown: params.text ?? "", files, turn: null };
+      if (params.replyTo !== undefined) reply.replyTo = params.replyTo;
+      const result = await host.sendOutbound(reply);
       if (result.kind === "dropped") return text(`出站中间件 ${result.by} 丢弃了这条消息：${result.reason}`, result);
       return text(`已发送到 ${result.reply.target}（ref ${result.ref}）`, { ref: result.ref });
     },

@@ -1,6 +1,7 @@
 // Platform adapters inside the built gateway, against the real Telegram Bot API and QQ open platform.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { openDb } from "../src/db/index.ts";
 import { Repo } from "../src/repo.ts";
@@ -149,5 +150,50 @@ describe.skipIf(!QQ_APP || !QQ_SECRET)("live QQ sandbox (BEARBOT_TEST_QQ_APP_ID,
     gw.child.kill("SIGTERM");
     await gw.exited;
     expect(gw.exitCode).toBe(0);
+  });
+
+  const QQ_GROUP = process.env.BEARBOT_TEST_QQ_GROUP_OPENID;
+
+  test.skipIf(!QQ_GROUP)("a message of the bot gets a quote index and can be quoted (BEARBOT_TEST_QQ_GROUP_OPENID)", async () => {
+    const env = makeEnv({ platforms: { qq: { appId: QQ_APP, clientSecret: QQ_SECRET, sandbox: true } } });
+    cleanups.push(() => removeEnv(env));
+    const target = `qq:group/${QQ_GROUP}`;
+    // Bind the test group before the gateway starts (an admin would do this with /bb attach).
+    const db = openDb(env.database);
+    new Repo(db, { consoleEnabled: true, classifierEnabledDefault: true, platforms: new Set(["qq", "console"]) }).putBinding({
+      channelId: target,
+      platform: "qq",
+      channelName: "bearbot test",
+      trigger: "mention",
+      prefix: null,
+      replyMode: "final",
+      interrupt: "queue",
+      createdBy: "test",
+    });
+    db.$client.close();
+
+    await start(env);
+    const ctl = await connectDaemon(env);
+    cleanups.push(() => void ctl.close());
+    await waitPlatform(ctl, "qq", (p) => p.state === "connected", 60_000);
+    const { peer } = await connectBridge(env);
+    cleanups.push(() => void peer.close());
+
+    const { ref } = await peer.request("post", { target, markdown: "bearbot 引用测试：被引用的消息" });
+    const messageId = ref.slice(ref.indexOf("|") + 1);
+    const quoteIdOf = (id: string): string | null => {
+      const reader = new Database(env.database, { readonly: true });
+      try {
+        return (reader.prepare("select quote_id from message_log where message_id = ?").get(id) as { quote_id: string | null }).quote_id;
+      } finally {
+        reader.close();
+      }
+    };
+    expect(quoteIdOf(messageId)).toMatch(/^REFIDX_/);
+
+    const { ref: reply } = await peer.request("post", { target, markdown: "bearbot 引用测试：引用上一条", replyTo: messageId });
+    expect(reply.startsWith(`${target}|`)).toBe(true);
+    const missing = await peer.requestError("post", { target, markdown: "不会发出", replyTo: "ROBOT1.0_missing" });
+    expect(missing).toMatchObject({ code: -32000, message: expect.stringContaining("找不到要回复的消息：ROBOT1.0_missing") });
   });
 });

@@ -1,4 +1,6 @@
+.env
 node_modules/
 gateway/dist/
 daemon/bin/
 *.log
+local-test/

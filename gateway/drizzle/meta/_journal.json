@@ -15,6 +15,13 @@
       "when": 1793113602600,
       "tag": "0001_maintenance_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793154340697,
+      "tag": "0002_message_quote",
+      "breakpoints": true
     }
   ]
 }
