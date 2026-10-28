@@ -47,7 +47,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 ### 0.3 实现约束
 
-- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.1.13、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.5。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
+- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.1.13、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
 - 出错时就地报错退出，不做静默的降级处理。
 - 测试全部使用真实组件，不使用 mock（第 16 节）。
 - 仓库中已有实现：Go 编写的 `bearbotd`（`daemon/`）、gateway（`gateway/`）、`bearbot-im` 扩展、bearbot SDK、recovery 扩展、三个技能、recovery profile 模板、示例配置与 Dockerfile（目录见第 14 节）。企业微信适配器（第 6.2.3 节，`packages/chat-adapter-wecom`）还没有实现：配置校验拒绝 `[platforms.wecom] enabled = true`，gateway 中也没有引用它的代码。
@@ -1986,7 +1986,7 @@ COPY gateway/ gateway/
 RUN npm run build -w gateway \
  && npm prune --omit=dev
 
-FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM node:24-bookworm-slim
 ARG PI_VERSION=1.4.0
