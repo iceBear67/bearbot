@@ -1093,7 +1093,7 @@ await bot.initialize();
 `ingest.message(thread, message)`（三个消息处理器共用）：
 
 1. 取得用于识别的原始文本（Telegram 为 `raw.text`，没有时为 `raw.caption`；QQ 为去掉开头提及标记的 `raw.content`；控制台为输入的文本），去掉首尾空白后整段是一个以 `bearbot-` 开头（不区分大小写）的词时，交给令牌处理（第 6.6 节）后结束。像“bearbot-im 很好用”这样的句子不算令牌。
-2. 这段文本形如 `/bb` 或 `/bb@<名称>` 加参数时（例如 Telegram 中没有 `bot_command` 实体的命令、被编辑的命令），交给命令处理（第 6.7 节）后结束；`<名称>` 与本平台机器人的用户名不同（不区分大小写）时，这条命令是发给其他机器人的，直接丢弃，不执行也不交给 agent。第 1、2 步在查找绑定之前执行，所以未绑定的频道中也可以领取令牌、执行 `/bb` 命令。
+2. 这段文本形如 `/bb` 或 `/bb@<名称>` 加参数时（例如 Telegram 中没有 `bot_command` 实体的命令、被编辑的命令），交给命令处理（第 6.7 节）后结束；`<名称>` 与本平台机器人的用户名不同（不区分大小写）时，这条命令是发给其他机器人的，直接丢弃，不执行也不交给 agent。形如 `!bb` 或 `!bb@<名称>` 加问题时（`!bb` 不区分大小写，后面必须是空白或结尾，所以 `!bbq` 是普通消息），交给 `!bb` 提问（第 6.9 节）后结束，`<名称>` 的规则相同。第 1、2 步在查找绑定之前执行，所以未绑定的频道中也可以领取令牌、执行 `/bb` 命令、使用 `!bb` 提问。
 3. 按 `thread.channelId` 查找绑定；未绑定（或者绑定的平台没有注册，第 6.4 节）则结束。
 4. 计算发送者角色：身份在 `admin` 表中，或者是控制台的内置管理员 `console:operator`（第 6.2.4 节）时为 `admin`，否则为 `member`。
 5. 按绑定的 `trigger` 计算初始 `trigger` 值：`mention` 时为 `message.isMention || thread.isDM`；`all` 时为 true；`prefix` 时为去掉开头空白的文本是否以 `prefix` 开头，是的话正文去掉前缀与其后的空白。被编辑的消息为 false。
@@ -1154,7 +1154,7 @@ Telegram 消息的发送者：消息带有 `sender_chat` 时（匿名的群管�
 
 ### 6.8 与 `bearbot-im` 的协议（`gateway.sock`）
 
-换行分隔的 JSON-RPC 2.0。`bearbot-im` 发送请求（id 为数字）与一种通知（`turn`），gateway 发送响应与通知。除 `hello` 外，请求都要在这条连接完成 `hello` 之后发送，否则返回错误“请先发送 hello”。错误码：`-32602` 参数无效，`-32601` 没有这个方法，`-32000` 其他错误（中文说明）。
+换行分隔的 JSON-RPC 2.0。`bearbot-im` 发送请求（id 为数字）与一种通知（`turn`），gateway 发送响应、通知与一种请求（`btw`，id 也是数字，两边按记录中有没有 `method` 区分请求与响应）。除 `hello` 外，请求都要在这条连接完成 `hello` 之后发送，否则返回错误“请先发送 hello”。错误码：`-32602` 参数无效，`-32601` 没有这个方法，`-32000` 其他错误（中文说明）。
 
 `bearbot-im` → gateway：
 
@@ -1197,11 +1197,30 @@ gateway → `bearbot-im`：
 | `bindings.changed`、`admins.changed` | `{bindings}`、`{admins}`：新的完整列表 |
 | `classifier.changed` | `{enabled, rules}`：生效的开关状态与全部规则（规则为 `{pattern, action}`） |
 
+gateway → `bearbot-im` 的请求：
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `btw` | `{question, thread, sender: {identity, name}}`：`!bb` 的问题、发起的会话串与提问的管理员（第 6.9 节） | `{answer}`：markdown 文本（第 7.11 节）；失败时返回 `-32000` 与说明 |
+
+`bearbot-im` 在发出响应之前连接已经断开时丢弃这个响应；gateway 在连接断开时让还没有得到响应的请求失败，错误为“gateway.sock 连接已断开，请求 btw 没有得到响应”。
+
 发送规则：gateway 为每条连接记录已发送的位置 `sentSeq`，`hello` 之后 `sentSeq = max(ackedSeq, bridge_cursor)`。每当 gateway 最近收到的 agent 状态为 `running` 并且有完成 `hello` 的连接时，gateway 按 `seq` 顺序发送 `seq > sentSeq` 的入站行，遇到附件还没有下载完的行就停下，等它完成后继续。`created_at` 早于 `replay_window` 的消息 `trigger` 改为 false 并带 `stale: true`，只作为旁观上下文，避免 agent 长时间不可用后对过期请求作出回复。连接关闭时不会丢失消息：下一次 `hello` 从已确认的位置开始。
+
+### 6.9 `!bb` 提问
+
+管理员发送 `!bb <问题>`，在不打断 agent 的情况下询问它正在做什么。回答来自 `bearbot-im` 中一个单独的 pi 会话，这个会话以主会话此刻的内容为依据（第 7.11 节）；主会话不会停下，也看不到这次问答。`/bb help` 中列出这个用法。
+
+- 识别方式见第 6.5 节第 2 步。`!bb` 不写入 `message_log`，也不作为消息交给 `bearbot-im`，所以不会进入派发队列，也不会出现在 `im_history` 中；回答作为机器人发出的消息记入 `message_log`。
+- 只有管理员（包括控制台的内置管理员）可以使用。非管理员发送时不回应，只写入 gateway 日志：btw 会话中的工具调用不经过 classifier。
+- 问题为空时回复用法说明。
+- 没有完成 `hello` 的 `bearbot-im` 连接时（agent 进程没有运行，或者处在故障、维护、回滚等状态），回复“bearbot-im 没有连接 gateway（agent 状态：<gateway 最近收到的状态>），无法回答”。
+- 否则向 `bearbot-im` 发送 `btw` 请求（第 6.8 节）。等待期间每 5 秒向会话串发送一次 `typing`，失败时只记一次 gateway 日志。收到回答后以 markdown 发到发起的会话串，分段规则与 `bearbot-im` 的 `post` 相同，不引用原消息（原消息不在 `message_log` 中，QQ 无法引用）。请求失败时以纯文本回复“btw 提问失败：<原因>”。
+- 提问在后台执行，不阻塞平台的接收；同时进行的多个提问互不影响。
 
 ## 7. `bearbot-im` 扩展
 
-位于 `/opt/bearbot/extensions/bearbot-im/`，TypeScript，由 pi 的 jiti 直接加载，只依赖 Node 内置模块与 pi 提供的模块（`typebox`、`@earendil-works/pi-ai`、`@earendil-works/pi-coding-agent` 的类型）。文件：`package.json`、`index.ts`（工厂函数），`src/` 中的 `bridge.ts`（进程级状态与各部分的组装）、`gateway-client.ts`、`agent-client.ts`、`pipeline.ts`、`dispatch.ts`、`render.ts`、`memory.ts`、`diagnostics.ts`、`tools.ts`、`trial.ts`、`classifier.ts`、`rollback.ts`，以及 `prompt/bearbot.md`、`prompt/classifier.md`。
+位于 `/opt/bearbot/extensions/bearbot-im/`，TypeScript，由 pi 的 jiti 直接加载，只依赖 Node 内置模块与 pi 提供的模块（`typebox`、`@earendil-works/pi-ai`、`@earendil-works/pi-coding-agent` 的类型，以及 btw 会话用到的 `createAgentSession`、`SessionManager`、`buildSessionContext`、`ModelRuntime`、`createExtensionRuntime`）。文件：`package.json`、`index.ts`（工厂函数），`src/` 中的 `bridge.ts`（进程级状态与各部分的组装）、`gateway-client.ts`、`agent-client.ts`、`pipeline.ts`、`dispatch.ts`、`render.ts`、`memory.ts`、`diagnostics.ts`、`tools.ts`、`trial.ts`、`classifier.ts`、`rollback.ts`、`btw.ts`，以及 `prompt/bearbot.md`、`prompt/classifier.md`、`prompt/btw.md`。
 
 ### 7.1 加载与项目信任
 
@@ -1447,6 +1466,18 @@ gateway 通知 message
 - 命令见第 6.7 节。开关的取值顺序：数据库设置 → `[classifier] enabled`（默认 `true`）。
 - 设置与规则保存在 gateway 数据库中，属于 `bearbot-gw` 0700 目录，agent 无法修改。`CLASSIFIER.md` 位于工作区目录中，agent 可以写入，`member` 回合对它的修改由回合结束比较恢复。
 - 设置变化后，gateway 向 `bearbot-im` 发送 `classifier.changed`，新设置立即生效，不需要重启。
+
+### 7.11 btw 会话
+
+`bearbot-im` 处理 gateway 的 `btw` 请求（第 6.8、6.9 节），用一个单独的 pi 会话回答管理员的问题。做法与 pi 扩展包 pi-btw 的 `/btw:ask` 相同：在内存中新建一个子会话，把主会话的内容复制进去，只开放只读工具。pi-btw 本身不在 agent 进程中加载：RPC 模式下它把回答写成主会话中的 `btw-note` 消息，agent 忙时用 `followUp` 排队到回合结束，这条排队的消息还会让 pi 在本次运行中多调用一次模型，回答也无法到达 IM。
+
+- **运行时**：使用最近一次 `session_start` 的 `ctx`；没有时返回错误“pi 的运行时当前不可用”。`ctx.model` 为空时返回错误“agent 当前没有选择模型”。
+- **上下文**：`buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId())` 得到主会话此刻的消息。进行中的回合里已经结束的助手消息与工具结果都已写入会话，正在生成的助手消息不在其中；还没有结果的工具调用由 pi 在请求时补上 “No result provided” 的错误结果。系统消息去掉 `toolsAdded`、`toolsRemoved`，子会话只声明自己的工具。这些消息依次写入 `SessionManager.inMemory(cwd)`。每次提问都新建子会话，所以总是以提问时主会话的最新内容为依据。
+- **子会话**：`createAgentSession`，模型与思考等级与主会话相同；工具只有 pi 的 `read`、`grep`、`find`、`ls`。资源加载器不提供扩展、技能、提示模板与 AGENTS 文件，所以子会话中没有 `bearbot-im`，工具调用也不经过 classifier（第 6.9 节只允许管理员提问）。系统提示为主会话当前生效的系统提示（`ctx.getSystemPrompt()`），后面附加 `prompt/btw.md`（占位符与 `prompt/bearbot.md` 相同，加载时替换，模板有没有替换的占位符时工厂函数抛出异常）。`prompt/btw.md` 说明：主 agent 仍在工作，之前的对话只作为回答的依据，不要接着做主 agent 的工作；显示 “No result provided” 的最后一组工具调用仍在执行；问题在 `<bearbot-btw>` 标签中；只能使用这四个工具查看工作区；回答直接发到聊天中，用简体中文简洁回答。
+- **凭据**：子会话的模型运行时读取同一个 profile 的 `auth.json` 与 `models.json`。当前模型的服务由扩展注册（`pi.registerProvider`）或使用运行时 API key 时，另建一个 `ModelRuntime`，登记这个服务的注册内容与 key。
+- **提问**：问题写成 `<bearbot-btw from="<名字> (<身份>)">问题</bearbot-btw>`（正文与属性转义），用 `session.prompt(文本, {expandPromptTemplates: false})` 发送，以 `/` 开头的问题不会被当作命令或提示模板。
+- **结果**：最后一条助手消息的文字（多个文字块用换行连接、去掉首尾空白）作为 `{answer}` 返回；最后一条不是助手消息、`stopReason` 为 `aborted` 或 `error`、没有文字时返回错误。之后销毁子会话。问答不写入主会话文件，也不经过 `input` 事件、派发队列与诊断。
+- **中止**：gateway 连接断开时中止全部进行中的子会话，回答已经无法送达。
 
 ## 8. 扩展 API
 
@@ -2116,6 +2147,7 @@ bearbot/
 │   │   ├── ingest.ts                     第 6.5 节
 │   │   ├── tokens.ts                     第 6.6 节
 │   │   ├── commands.ts                   第 6.7 节
+│   │   ├── btw.ts                        第 6.9 节
 │   │   ├── bridge-server.ts              gateway.sock（第 6.8 节）
 │   │   ├── ctl-server.ts                 gateway-ctl.sock：处理 daemon 发起的请求，并在同一连接上向 daemon 发起请求（第 5.10.2、5.10.3 节）
 │   │   ├── rpc.ts                        换行分隔的 JSON-RPC 连接
@@ -2131,8 +2163,8 @@ bearbot/
 │   ├── bearbot-im/
 │   │   ├── package.json  index.ts
 │   │   ├── src/bridge.ts  src/gateway-client.ts  src/agent-client.ts  src/pipeline.ts  src/dispatch.ts
-│   │   ├── src/render.ts  src/memory.ts  src/diagnostics.ts  src/tools.ts  src/trial.ts  src/classifier.ts  src/rollback.ts
-│   │   ├── prompt/bearbot.md  prompt/classifier.md
+│   │   ├── src/render.ts  src/memory.ts  src/diagnostics.ts  src/tools.ts  src/trial.ts  src/classifier.ts  src/rollback.ts  src/btw.ts
+│   │   ├── prompt/bearbot.md  prompt/classifier.md  prompt/btw.md
 │   │   └── test/                         vitest：真实 pi 进程、真实 bearbotd 与 gateway 的端到端场景、各模块
 │   └── bearbot-recovery/
 │       ├── package.json  index.ts  tsconfig.json
@@ -2273,5 +2305,11 @@ bearbot/
   - 用 `docker run -d`（标准输入为 `/dev/null`）启动，确认控制台没有启用，`im_targets` 中没有 `console:main`，管理员列表中没有 `console:operator`；
   - 应用一个启动时抛出异常的扩展触发故障，确认控制台中出现 agent 状态变化的状态行与管理员通知；在控制台执行 `/bb rollback`，确认回滚通知回合的回复发到控制台，之后控制台中的管理员回合正常结束时回滚提醒消失；
   - 同时有 IM 管理员时，以 `requesters = null` 的系统回合确认 `origin` 返回 IM 管理员的 `notify_thread`。
+- **`!bb` 提问**：
+  - 控制台中 `!bb <问题>` 作为 `btw` 请求交给 `bearbot-im`，回答发回控制台；`!bb@<机器人名>` 同样生效，`!bb@<其他机器人>` 被丢弃，空问题回复用法说明，`!bbq` 是普通消息；这些 `!bb` 都不出现在 `message_log` 中；
+  - `bearbot-im` 返回错误时回复“btw 提问失败：<原因>”；没有 `bearbot-im` 连接时回复不可用说明；连接在回答之前断开时回复连接断开；
+  - Telegram 群中非管理员的 `!bb` 与发给其他机器人的 `!bb` 不写入 `message_log`；
+  - 真实的 bearbotd、gateway、pi 中，没有凭据时 btw 会话的错误（“No API key found for”）作为回复发回，主会话文件不变，没有诊断；
+  - 使用真实模型：主 agent 正在执行一个等待测试放行的工具时发送 `!bb`，回答在回合结束之前到达并提到这个工具，问题不出现在主会话文件中；放行之后主回合照常回复。
 - **内置工具**：确认 agent 进程与 recovery 中启用了 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`。
 - **记忆**：修改 `AGENTS.md` 后执行 `/bb compact` 与 `/bb new`，检查下一轮系统提示中的内容。

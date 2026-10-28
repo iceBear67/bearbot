@@ -9,6 +9,7 @@ import type { QQRawMessage } from "@amatsuka/chat-adapter-qq";
 import type { ActionEvent, Adapter, Attachment, Author, Message, ReactionEvent, SlashCommandEvent, Thread } from "chat";
 import mime from "mime";
 import type { AgentState } from "./agent-state.ts";
+import type { Btw } from "./btw.ts";
 import type { CommandContext, Commands } from "./commands.ts";
 import type { GatewayConfig } from "./config.ts";
 import { safeFileName, type ConsoleRaw } from "./console-adapter.ts";
@@ -147,6 +148,9 @@ function replyTargetOf(platform: string, raw: unknown, replyTo: Message | undefi
 /** "/bb", "/bb@name" followed by arguments. */
 const BB = /^\/bb(?:@(\S+))?(?:\s([\s\S]*))?$/i;
 
+/** "!bb", "!bb@name" followed by a question. */
+const BTW = /^!bb(?:@(\S+))?(?:\s([\s\S]*))?$/i;
+
 function defaultAttachmentName(a: Attachment, index: number): string {
   const ext = a.mimeType ? mime.getExtension(a.mimeType) : null;
   return `${a.type}-${index + 1}${ext ? `.${ext}` : ""}`;
@@ -211,6 +215,7 @@ export class Ingest {
       log: MessageLog;
       tokens: Tokens;
       commands: Commands;
+      btw: Btw;
       outbound: Outbound;
       agentState: AgentState;
       delivery: Delivery;
@@ -277,6 +282,17 @@ export class Ingest {
         channelName: channelNameOf(platform, message.raw),
         replyTarget: replyTargetOf(platform, message.raw, message.replyTo),
       });
+      return;
+    }
+
+    // 2. !bb: a question about the agent's work that does not interrupt it
+    const btw = BTW.exec(rawText);
+    if (btw) {
+      if (btw[1] !== undefined && btw[1].toLowerCase() !== adapter.userName.toLowerCase()) {
+        return; // addressed to another bot
+      }
+      // Not awaited: bearbot-im answers with a model call, polling must go on.
+      void this.deps.btw.run({ threadId: thread.id, sender: { identity, name: sender.name }, question: (btw[2] ?? "").trim() });
       return;
     }
 

@@ -3,6 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 import { isCardElement, type CardElement } from "chat";
 import type { AgentState } from "./agent-state.ts";
+import type { BtwAsker, BtwParams } from "./btw.ts";
 import type { ChangeNotifier } from "./commands.ts";
 import type { GatewayConfig } from "./config.ts";
 import type { Delivery } from "./ingest.ts";
@@ -37,7 +38,7 @@ const INBOX_FILE_REPLACED = "文件已被替换，没有读取";
 type Active = { conn: JsonRpcConnection; sentSeq: number };
 
 /** gateway.sock (DESIGN 6.8, contracts 5): bearbot-im <-> gateway. */
-export class BridgeServer implements Delivery, ChangeNotifier {
+export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
   private readonly server: Server;
   private readonly connections = new Set<JsonRpcConnection>();
   private active: Active | null = null;
@@ -79,6 +80,16 @@ export class BridgeServer implements Delivery, ChangeNotifier {
 
   classifierChanged(): void {
     this.active?.conn.notify("classifier.changed", this.deps.repo.classifier());
+  }
+
+  // ---- requests ----
+
+  askBtw(params: BtwParams): Promise<unknown> | null {
+    const active = this.active;
+    if (!active || active.conn.closed) {
+      return null;
+    }
+    return active.conn.request("btw", params);
   }
 
   /**

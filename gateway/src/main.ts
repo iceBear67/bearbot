@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Chat } from "chat";
 import { AgentState } from "./agent-state.ts";
 import { BridgeServer } from "./bridge-server.ts";
+import { Btw } from "./btw.ts";
 import { Commands } from "./commands.ts";
 import { loadConfigFromArgs, type GatewayConfig } from "./config.ts";
 import { CtlServer } from "./ctl-server.ts";
@@ -92,7 +93,8 @@ async function main(): Promise<void> {
     logger,
   });
   const commands = new Commands({ cfg, repo, outbound, platforms, agentState, daemon: ctl, notifier: bridge, logger });
-  const ingest = new Ingest({ cfg, repo, log, tokens, commands, outbound, agentState, delivery: bridge, logger });
+  const btw = new Btw({ repo, outbound, agentState, asker: bridge, logger });
+  const ingest = new Ingest({ cfg, repo, log, tokens, commands, btw, outbound, agentState, delivery: bridge, logger });
 
   agentState.onChange(({ previous, state, reason }) => {
     logger.info({ previous, state, reason }, "agent state");

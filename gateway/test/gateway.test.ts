@@ -874,6 +874,52 @@ describe("/bb commands from the console", () => {
   });
 });
 
+describe("!bb from the console", () => {
+  test("the question goes to bearbot-im as a btw request and the answer to the thread; !bb never reaches message_log", async () => {
+    const { env, gw } = await start();
+    track(await connectDaemon(env));
+    const { peer } = await connectBridge(env);
+    track(peer);
+    const from = nthOf(gw);
+
+    gw.type("!bb   你在做什么");
+    const first = await peer.waitRequestEntry("btw");
+    expect(first.params).toEqual({ question: "你在做什么", thread: "console:main", sender: { identity: "console:operator", name: "控制台" } });
+    peer.respond(first.id, { result: { answer: "正在运行 **测试**" } });
+    await gw.waitConsole(new RegExp(`\\[${CLOCK} bearbot #\\d+\\]\\n正在运行 \\*\\*测试\\*\\*\\n`), from);
+
+    gw.type("!BB@bearbot 进度如何");
+    const second = await peer.waitRequestEntry("btw", 1);
+    expect(second.params.question).toBe("进度如何");
+    peer.respond(second.id, { error: "pi 的运行时当前不可用" });
+    await gw.waitConsole(/btw 提问失败：pi 的运行时当前不可用/, from);
+
+    gw.type("!bb@otherbot 不是问 bearbot 的");
+    gw.type("!bb");
+    await gw.waitConsole(/用法：!bb <问题>，在不打断 agent 的情况下询问它正在做什么/, from);
+    gw.type("!bbq 普通消息");
+    await peer.waitMessage((m) => m.text === "!bbq 普通消息");
+    expect(peer.messages().map((m) => m.text)).toEqual(["!bbq 普通消息"]);
+    expect(peer.requests.filter((r) => r.method === "btw")).toHaveLength(2);
+    const history = await peer.request("history", { target: "console:main", limit: 20 });
+    expect(history.messages.filter((m: any) => m.direction === "in").map((m: any) => m.text)).toEqual(["!bbq 普通消息"]);
+  });
+
+  test("without bearbot-im, and when bearbot-im disconnects before answering", async () => {
+    const { env, gw } = await start();
+    track(await connectDaemon(env));
+    gw.type("!bb 在吗");
+    await gw.waitConsole(/bearbot-im 没有连接 gateway（agent 状态：running），无法回答/);
+
+    const { peer } = await connectBridge(env);
+    const from = nthOf(gw);
+    gw.type("!bb 在吗");
+    await peer.waitRequestEntry("btw");
+    await peer.close();
+    await gw.waitConsole(/btw 提问失败：gateway\.sock 连接已断开，请求 btw 没有得到响应/, from);
+  });
+});
+
 describe("files, sockets, retention, webhook server", () => {
   test("socket modes: gateway.sock 0660 with the configured group, gateway-ctl.sock 0600", async () => {
     const { env } = await start();

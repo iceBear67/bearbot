@@ -206,15 +206,15 @@ type Notification = { method: string; params: any };
 
 /**
  * Newline-delimited JSON-RPC 2.0 peer used by the tests. On gateway-ctl.sock it connects like bearbotd (ids
- * "d<n>"); requests from the gateway are recorded in `requests` and not answered. On gateway.sock it connects
- * like bearbot-im (numeric ids).
+ * "d<n>"); requests from the gateway are recorded in `requests` and answered only when a test calls `respond`. On
+ * gateway.sock it connects like bearbot-im (numeric ids).
  */
 export class RpcPeer {
   private buffer = "";
   private nextId = 1;
   private readonly pending = new Map<string | number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
   readonly notifications: Notification[] = [];
-  readonly requests: { method: string; params: any }[] = [];
+  readonly requests: { id: string | number; method: string; params: any }[] = [];
   closed = false;
   readonly closedPromise: Promise<void>;
 
@@ -290,6 +290,17 @@ export class RpcPeer {
     return waitFor(`request ${method}`, () => this.requests.find((r) => r.method === method)?.params, timeoutMs);
   }
 
+  /** The `n`th request (from 0) of `method` from the gateway, with the id to answer it with `respond`. */
+  async waitRequestEntry(method: string, n = 0, timeoutMs = 10_000): Promise<{ id: string | number; params: any }> {
+    return waitFor(`request ${method} #${n}`, () => this.requests.filter((r) => r.method === method)[n], timeoutMs);
+  }
+
+  /** Answers a request from the gateway with a result or with a -32000 error. */
+  respond(id: string | number, answer: { result: unknown } | { error: string }): void {
+    const body = "result" in answer ? { result: answer.result } : { error: { code: -32000, message: answer.error } };
+    this.socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, ...body })}\n`);
+  }
+
   close(): Promise<void> {
     this.socket.end();
     return this.closedPromise;
@@ -303,7 +314,7 @@ export class RpcPeer {
       this.buffer = this.buffer.slice(nl + 1);
       const msg = JSON.parse(line);
       if (typeof msg.method === "string" && msg.id !== undefined) {
-        this.requests.push({ method: msg.method, params: msg.params });
+        this.requests.push({ id: msg.id, method: msg.method, params: msg.params });
       } else if (typeof msg.method === "string") {
         this.notifications.push({ method: msg.method, params: msg.params });
       } else {

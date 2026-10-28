@@ -7,6 +7,7 @@ import { Chat } from "chat";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { AgentState } from "../src/agent-state.ts";
 import { BridgeServer } from "../src/bridge-server.ts";
+import { Btw } from "../src/btw.ts";
 import { Commands } from "../src/commands.ts";
 import { parseConfig } from "../src/config.ts";
 import { CtlServer } from "../src/ctl-server.ts";
@@ -79,7 +80,8 @@ beforeAll(async () => {
     logger,
   });
   const commands = new Commands({ cfg, repo, outbound, platforms, agentState, daemon: ctl, notifier: bridge, logger });
-  const ingest = new Ingest({ cfg, repo, log, tokens, commands, outbound, agentState, delivery: bridge, logger });
+  const btw = new Btw({ repo, outbound, agentState, asker: bridge, logger });
+  const ingest = new Ingest({ cfg, repo, log, tokens, commands, btw, outbound, agentState, delivery: bridge, logger });
   bot = new Chat({ userName: cfg.userName, adapters: platforms.adapters, state: createSqliteState(db), concurrency: "concurrent", logger: chatLogger });
   bot.onDirectMessage((thread, message) => ingest.message(thread, message));
   bot.onNewMention((thread, message) => ingest.message(thread, message));

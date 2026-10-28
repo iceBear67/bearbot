@@ -26,6 +26,7 @@ import type {
   OutboundReply,
 } from "../../../sdk/index.ts";
 import { AgentClient, type AgentWireState, type BridgeEvent, type IncidentNotice, type ReadyResult, type StatusInfo } from "./agent-client.ts";
+import { Btw, parseBtwRequest } from "./btw.ts";
 import { Classifier } from "./classifier.ts";
 import { type DiagnosticRecord, Diagnostics, diagnosticsFile, formatAdminNotice, formatDiagnosticsForTurn } from "./diagnostics.ts";
 import { Dispatcher, type SystemTurnSpec, type TurnEndListener, type TurnStartListener, TurnQueue } from "./dispatch.ts";
@@ -141,6 +142,7 @@ export class Bridge {
   /** Skills of the agent process (DESIGN 9.1); bearbot-recovery is only for recovery. */
   readonly skillPaths: string[];
   readonly toolsHost: ToolsHost;
+  readonly btw: Btw;
 
   private generation = 0;
   private readonly staleGenerations = new Set<number>();
@@ -188,6 +190,10 @@ export class Bridge {
       this.promptVars,
       true,
     );
+    this.btw = new Btw({
+      ctx: () => this.activeCtx,
+      instructions: renderPromptTemplate(readFileSync(join(config.extensionDir, "prompt", "btw.md"), "utf8"), this.promptVars, true),
+    });
 
     this.queue = new TurnQueue(config.observeLimit, this.ack);
     this.outbound = new OutboundPipeline(this.outboundMiddleware, this.diagnostics, config.holdWarnAfterMs);
@@ -357,6 +363,8 @@ export class Bridge {
       process.stderr.write("bearbot-im：gateway 连接断开，每秒重连一次\n");
     });
     this.gateway.on("problem", (kind, detail) => this.connectionProblem(kind, detail));
+    this.gateway.on("disconnected", () => this.btw.abortAll());
+    this.gateway.handle("btw", async (params) => ({ answer: await this.btw.answer(parseBtwRequest(params)) }));
     this.gateway.start();
   }
 

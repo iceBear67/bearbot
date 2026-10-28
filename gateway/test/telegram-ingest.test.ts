@@ -9,6 +9,7 @@ import { Chat, type WebhookOptions } from "chat";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import { AgentState } from "../src/agent-state.ts";
 import { BridgeServer } from "../src/bridge-server.ts";
+import { Btw } from "../src/btw.ts";
 import { Commands } from "../src/commands.ts";
 import { parseConfig } from "../src/config.ts";
 import { CtlServer } from "../src/ctl-server.ts";
@@ -84,7 +85,8 @@ beforeAll(async () => {
     logger,
   });
   const commands = new Commands({ cfg, repo, outbound, platforms, agentState, daemon: ctl, notifier: bridge, logger });
-  const ingest = new Ingest({ cfg, repo, log, tokens, commands, outbound, agentState, delivery: bridge, logger });
+  const btw = new Btw({ repo, outbound, agentState, asker: bridge, logger });
+  const ingest = new Ingest({ cfg, repo, log, tokens, commands, btw, outbound, agentState, delivery: bridge, logger });
   bot = new Chat({ userName: cfg.userName, adapters: platforms.adapters, state: createSqliteState(db), concurrency: "concurrent", logger: chatLogger });
   bot.onDirectMessage((thread, message) => ingest.message(thread, message));
   bot.onNewMention((thread, message) => ingest.message(thread, message));
@@ -143,6 +145,29 @@ test("in a forum topic only an explicit reply selects the user for /bb admin add
   const reply = { message_id: 20, date: 1, chat: FORUM, from: BOB, is_topic_message: true, message_thread_id: 7, reply_to_message: root, text: "hi" };
   await feed({ ...inTopic, reply_to_message: reply, ...command("/bb admin add") });
   expect(admins()).toEqual(["telegram:111", "telegram:555"]);
+});
+
+test("!bb from a non-admin and !bb for another bot reach neither bearbot-im nor message_log", async () => {
+  const group = { id: -100333, type: "supergroup" as const, title: "btw" };
+  repo.putBinding({
+    channelId: "telegram:-100333",
+    platform: "telegram",
+    channelName: "btw",
+    trigger: "all",
+    prefix: null,
+    replyMode: "final",
+    interrupt: "queue",
+    createdBy: "test",
+  });
+  repo.putAdmin({ identity: "telegram:111", displayName: "Alice", notifyThread: "telegram:111", addedBy: "test" });
+  await feed({ chat: group, from: BOB, text: "!bb 你在做什么" });
+  await feed({ chat: group, from: ALICE, text: "!bb@other_bot 你在做什么" });
+  await feed({ chat: group, from: BOB, text: "普通消息" });
+  const texts = log
+    .inboundAfter(0, 100)
+    .filter((r) => r.payload.channel.id === "telegram:-100333")
+    .map((r) => r.payload.text);
+  expect(texts).toEqual(["普通消息"]);
 });
 
 test("a message sent on behalf of a chat has the chat as sender, not the shared fake user", async () => {

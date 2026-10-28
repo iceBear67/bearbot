@@ -103,6 +103,11 @@ export interface GatewayClientEvents {
   problem: [kind: "connect" | "hello", detail: string];
 }
 
+/** Answers a gateway request; a rejection is answered with -32000 and the error message. */
+export type RequestHandler = (params: unknown) => Promise<unknown>;
+
+const APP_ERROR = -32000;
+
 export const RECONNECT_DELAY_MS = 1000;
 export const SEND_WAIT_MS = 30_000;
 
@@ -117,6 +122,7 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly waiters = new Set<() => void>();
+  private readonly requestHandlers = new Map<string, RequestHandler>();
   private reconnectTimer: NodeJS.Timeout | null = null;
   private started = false;
   private closed = false;
@@ -159,6 +165,12 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
 
   post(params: PostParams): Promise<{ ref: string }> {
     return this.request<{ ref: string }>("post", params);
+  }
+
+  /** Registers the handler of a request the gateway sends (DESIGN 6.8). */
+  handle(method: string, handler: RequestHandler): void {
+    if (this.requestHandlers.has(method)) throw new Error(`gateway 请求 ${method} 已经有处理函数`);
+    this.requestHandlers.set(method, handler);
   }
 
   private waitConnected(method: string, waitMs: number): Promise<void> {
@@ -245,6 +257,10 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
       this.onNotification(message.method, message.params);
       return;
     }
+    if (message.method !== undefined) {
+      this.onRequest(message.id as number | string, message.method, message.params);
+      return;
+    }
     if (typeof message.id !== "number") throw new Error(`gateway 发来无法识别的记录：${line}`);
     const entry = this.pending.get(message.id);
     if (!entry) throw new Error(`gateway 的响应没有对应的请求：${line}`);
@@ -270,5 +286,21 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
       default:
         throw new Error(`gateway 发来未知的通知：${method}`);
     }
+  }
+
+  /** Requests from the gateway (DESIGN 6.8); the response goes back on the connection the request came from. */
+  private onRequest(id: number | string, method: string, params: unknown): void {
+    const socket = this.socket;
+    const handler = this.requestHandlers.get(method);
+    if (!handler) throw new Error(`gateway 发来未知的请求：${method}`);
+    const respond = (body: { result: unknown } | { error: { code: number; message: string } }) => {
+      // A closed connection drops the response; the gateway already failed the request.
+      if (this.socket !== socket || socket === null) return;
+      socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, ...body })}\n`);
+    };
+    handler(params).then(
+      (result) => respond({ result }),
+      (error: unknown) => respond({ error: { code: APP_ERROR, message: error instanceof Error ? error.message : String(error) } }),
+    );
   }
 }

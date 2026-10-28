@@ -56,7 +56,7 @@ The sockets live in `/run/bearbot/`:
 
 | Socket | Protocol | Connection |
 |---|---|---|
-| `gateway.sock` | newline-delimited JSON-RPC | `bearbot-im` → gateway. Carries messages, posts and history. |
+| `gateway.sock` | newline-delimited JSON-RPC | `bearbot-im` → gateway. Carries messages, posts and history. The gateway sends one request back: `btw`. |
 | `gateway-ctl.sock` | newline-delimited JSON-RPC | daemon ⇄ gateway. Both sides send requests: status, `/bb` command actions, tokens, notifications, agent state. |
 | `agent.sock` | HTTP/JSON | `bearbot-im` and recovery → daemon. Carries check, apply, snapshot restore, the classifier turn record and recovery reports. Which endpoints are accepted depends on the current daemon state. |
 | `admin.sock` | HTTP with NDJSON responses | `bearbotd` CLI subcommands → daemon. |
@@ -84,6 +84,7 @@ Every node script, including pi, tsc and npm, starts as `<node> <script>`. `<nod
 - The gateway receives all messages through `onDirectMessage`, `onNewMention` and `onNewMessage(/[\s\S]*/)` with the `concurrent` strategy. Handlers only write to SQLite and return; queueing, merging and debouncing happen in `bearbot-im`.
 - Data is stored in SQLite through drizzle (migrations in `gateway/drizzle/`), and `state/sqlite-state.ts` is the chat-sdk `StateAdapter` on the same database.
 - `commands.ts` handles `/bb` commands, `tokens.ts` the admin tokens, and `console-adapter.ts` the console platform. The console runs on file descriptors 3 and 4, which the daemon hands over from its own stdin and stdout. Its sender is the built-in administrator `console:operator`.
+- `btw.ts` handles `!bb <question>` from admins: it never enters `message_log` and goes to `bearbot-im` as a `btw` request (DESIGN 6.9).
 - `safe-open.ts` opens workspace files without following symlinks.
 
 ### bearbot-im (`extensions/bearbot-im/`)
@@ -92,6 +93,7 @@ Every node script, including pi, tsc and npm, starts as `<node> <script>`. `<nod
 - `pipeline.ts` runs subscribers and middleware.
 - `dispatch.ts` keeps one queue for all bound channels and hands messages to `pi.sendUserMessage`. It tracks the dispatched turn itself, because a rejected dispatch is reported only as an `extension_error` on `<runtime>`/`send_user_message`, which the daemon forwards.
 - `classifier.ts` gates tool calls in `tool_call` for member turns.
+- `btw.ts` answers `btw` requests in a separate in-memory pi session (`createAgentSession`) seeded with the main session's current messages, with only `read`, `grep`, `find` and `ls`; the main session is not interrupted and does not see the exchange (DESIGN 7.11).
 - Other extensions get the API over `pi.events` through `sdk/index.ts`. Module state is not shared across extensions, because jiti uses `moduleCache: false`.
 
 ### Self-modification flow (DESIGN 9)
