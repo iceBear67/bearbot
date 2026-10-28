@@ -300,6 +300,20 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 | `snapshot list`、`snapshot diff <引用> [引用]` | 快照查看 |
 | `python rebuild` | 镜像更换 Python 版本后重建虚拟环境，在 daemon 没有运行时用 `docker run --rm <挂载参数> bearbot python rebuild` 执行 |
 
+## 常见问题（FAQ）
+
+### 挂载目录迁移到另一台机器后，容器启动了却没有任何反应
+
+用 `docker exec bearbot bearbotd logs gateway -n 50` 查看 gateway 的日志，如果其中有 `SQLITE_READONLY`、`EACCES` 等错误，`bearbotd logs daemon` 中反复出现 `gateway exited unexpectedly`，原因就是挂载目录中文件的属主不正确。用普通用户解压、用 root 解压但没有加 `--numeric-owner`、或者服务器的 Docker 使用 rootless 模式或 userns-remap，都会让文件的数字属主与容器中的 `bearbot`（UID 1000）、`bearbot-gw`（UID 1001）不一致。daemon 启动时只修正各个目录本身的属主与权限，目录中的文件保持原样；gateway 无法写入 `gateway.db` 而不断退出，daemon 一直等待 gateway 连接，不会启动 agent。daemon 的日志只写入 `profile/bearbot/logs/daemon.log`，所以 `docker compose logs` 中看不到任何输出。
+
+容器运行时，在仓库根目录执行 [CLEAN.sh](CLEAN.sh)：
+
+```sh
+./CLEAN.sh
+```
+
+它在名为 `bearbot` 的容器中按 DESIGN.md 第 4.3、4.4 节的目录表恢复三个挂载点中全部文件的属主（不跟随符号链接），为工作区恢复 `bearbot` 组的读写权限与目录的 setgid 位，然后重启容器。`profile/` 中的文件权限保持不变，`auth.json` 等凭据文件仍然只有 `bearbot` 可以读取。重启后 `bearbotd logs daemon` 中出现 `gateway ready` 与 `agent ready` 即恢复正常。
+
 ## 本地开发
 
 需要的软件：Go 1.27、Node.js 24、git、Python 3.14（`/usr/bin/python3.14`）、uv（`/usr/bin/uv`、`/usr/bin/uvx`），以及 gateway 控制台测试使用的 util-linux `script` 与 `tmux`。
