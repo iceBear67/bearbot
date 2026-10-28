@@ -27,75 +27,238 @@ docker build -t bearbot .
 
 可以用 `--build-arg` 修改 `PI_VERSION`、`TYPESCRIPT_VERSION`、`PYTHON_VERSION`、`BEARBOT_UID`、`BEARBOT_GID`、`BEARBOT_GW_UID`，默认值写在 `Dockerfile` 中。
 
-## 运行
+推送 `v*` 标签（例如 `v1.2.3`）时，GitHub Actions（`.github/workflows/docker.yml`）用默认参数构建 `linux/amd64` 与 `linux/arm64` 镜像，发布为 `ghcr.io/<所有者>/<仓库名>`，标签为 `1.2.3`、`1.2` 与 `latest`（预发布版本不更新 `latest`）。
 
-### 准备挂载目录
+## 快速上手（Getting Started）
 
-容器有三个挂载点，启动前必须都已经存在：
+bearbot 支持三种运行与调试方式：
+1. **Docker Compose 本地部署（推荐）**：使用仓库预置的 [docker-compose.yml](file:///home/icybear/GolandProjects/bearbot/docker-compose.yml) 与 `local-test/` 挂载目录，开箱即用。
+2. **Docker 命令行部署**：适合自定义路径与生产环境部署。
+3. **终端控制台调试模式（Console）**：零 IM 门槛，直接在终端作为内置管理员与 agent 交互。
 
-| 挂载点 | 内容 |
-|---|---|
-| `/bearbot/profile` | pi profile（凭据、会话、设置、模型定义）、Python 虚拟环境、agent 安装的可执行文件、bearbot 的日志与快照 |
-| `/bearbot/workspace` | 工作区：记忆 `AGENTS.md`、classifier 补充规则 `CLASSIFIER.md`、agent 的扩展与配置 `.pi/`、资料、收到的文件 |
-| `/bearbot/config` | `bearbot.toml`、recovery profile 的覆盖文件、维护脚本 |
+---
+
+### 1. 准备挂载目录与权限
+
+容器运行时包含三个持久化挂载点。启动前**必须确保宿主机上这三个目录均已建立**：
+
+| 挂载点 | 宿主机对应（示例） | 职责与内容 |
+|---|---|---|
+| `/bearbot/profile` | `./local-test/profile` 或 `/srv/bearbot/profile` | Agent 的 profile（凭据 `auth.json`、模型定义 `models.json`、会话记录 `sessions/`）、Python 虚拟环境、安装的二进制可执行文件 `bin/`、日志与 Git 快照仓库。 |
+| `/bearbot/workspace` | `./local-test/workspace` 或 `/srv/bearbot/workspace` | Agent 的工作区：记忆 [AGENTS.md](file:///home/icybear/GolandProjects/bearbot/local-test/workspace/AGENTS.md)、Classifier 规则 [CLASSIFIER.md](file:///home/icybear/GolandProjects/bearbot/local-test/workspace/CLASSIFIER.md)、自扩展代码与配置 `.pi/`（`extensions/`、`skills/`、`mcp.json`）、聊天收到的文件 `inbox/`。首次启动为空时 daemon 会自动初始化模板。 |
+| `/bearbot/config` | `./local-test/config` 或 `/srv/bearbot/config` | 核心配置文件 `bearbot.toml`、可选的 recovery profile 覆盖配置、维护脚本 hooks。 |
+
+#### 初始化目录结构
+在仓库根目录下运行：
 
 ```sh
-mkdir -p /srv/bearbot/profile /srv/bearbot/workspace /srv/bearbot/config
-cp config/bearbot.example.toml /srv/bearbot/config/bearbot.toml
+mkdir -p local-test/profile local-test/workspace local-test/config
+cp config/bearbot.example.toml local-test/config/bearbot.toml
 ```
 
-然后按需要修改 `bearbot.toml`。配置中的 `${变量名}` 从容器的环境变量取值，变量不存在时 daemon 启动失败，所以用到的变量都要在 `docker run` 中传入。
+> [!NOTE]
+> 容器内进程分别以 `root`（daemon）、`bearbot`（Agent/Recovery，默认 UID 1000）和 `bearbot-gw`（Gateway，默认 UID 1001）运行。容器启动时，daemon 会自动检查并修正挂载点下各子目录的属主与权限。
 
-### 模型服务
+---
 
-- agent 的凭据：在 `[agent.env]` 中给出 API key，或者在容器运行后执行 `docker exec -it bearbot bearbotd login`，在交互式 pi 中执行 `/login`，凭据写入 `/bearbot/profile/agent/auth.json`。
-- agent 使用的模型：写在工作区的 `.pi/settings.json`（`defaultProvider`、`defaultModel`）中。自定义的模型服务（例如 OpenAI 兼容接口）写在 `/bearbot/profile/agent/models.json` 中，格式见 pi 的文档。
-- classifier 使用的模型：`[classifier] model`，写法为 `<服务>/<模型 id>`。
-- recovery 的凭据与模型：recovery 使用独立的 profile，不读取 agent 的 `auth.json`。凭据放在 `[recovery.env]` 中，或者放在 `/bearbot/config/recovery/auth.json`。`/bearbot/config/recovery/` 中的 `settings.json`、`models.json` 替换镜像中的模板，替换用的 `settings.json` 必须保留 `defaultProvider`。
+### 2. 配置环境变量（.env）
 
-### 启动容器
+复制项目示例并配置 `.env` 文件（[docker-compose.yml](file:///home/icybear/GolandProjects/bearbot/docker-compose.yml) 会自动读取）：
+
+```sh
+cp .env.example .env
+```
+
+在 `.env` 中按需填入模型 API Key 与聊天平台凭据：
+
+```dotenv
+# ==============================
+# 模型服务凭据
+# ==============================
+# 方式 A：使用 Anthropic 官方模型服务
+ANTHROPIC_API_KEY=sk-ant-api03-...
+BEARBOT_RECOVERY_API_KEY=sk-ant-api03-...
+
+# 方式 B：如使用第三方/OpenAI 兼容模型（如 DeepSeek、Kimi、GLM 等），可在 .env 中定义自定义变量：
+# OPENAI_API_KEY=sk-...
+
+# ==============================
+# IM 平台凭据（按需配置）
+# ==============================
+# Telegram 机器人令牌（从 @BotFather 获取）
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ_example
+
+# QQ 官方机器人凭据（从 QQ 开放平台获取）
+QQ_BOT_APP_ID=102030405
+QQ_BOT_CLIENT_SECRET=abcdef1234567890abcdef1234567890
+```
+
+---
+
+### 3. 配置模型服务
+
+Bearbot 由三部分依赖模型的能力组成：**Agent 主体**、**Classifier（安全分类器）** 与 **Recovery（故障修复 Agent）**。
+
+#### 选项 A：使用官方 Anthropic 服务（默认）
+直接在 `.env` 中提供 `ANTHROPIC_API_KEY` 和 `BEARBOT_RECOVERY_API_KEY`，在 `bearbot.toml` 中配置：
+```toml
+[agent.env]
+ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"
+
+[classifier]
+enabled = true
+model = "anthropic/claude-haiku-4-5-20251001"
+
+[recovery.env]
+ANTHROPIC_API_KEY = "${BEARBOT_RECOVERY_API_KEY}"
+```
+
+#### 选项 B：使用 OpenAI 兼容自定义服务（如 DeepSeek、GLM、Kimi 等）
+参考 `local-test` 的多模型配置实践：
+
+1. **配置 Agent 模型服务**：在挂载目录的 `profile/agent/models.json` 中配置 provider（支持 `openai-completions` 接口）：
+   ```json
+   {
+     "providers": {
+       "deepseek": {
+         "name": "DeepSeek API",
+         "baseUrl": "https://api.deepseek.com/v1",
+         "api": "openai-completions",
+         "apiKey": "sk-your-key-here",
+         "models": [
+           {
+             "id": "deepseek-chat",
+             "name": "DeepSeek-V3",
+             "contextWindow": 65536,
+             "maxTokens": 8192
+           }
+         ]
+       }
+     }
+   }
+   ```
+2. **指定 Agent 默认使用的模型**：在工作区创建 `workspace/.pi/settings.json`：
+   ```json
+   {
+     "defaultProvider": "deepseek",
+     "defaultModel": "deepseek-chat"
+   }
+   ```
+3. **配置 Classifier 模型**：在 `local-test/config/bearbot.toml` 中将 `[classifier] model` 指向自定义模型的 `<服务ID>/<模型ID>`：
+   ```toml
+   [classifier]
+   enabled = true
+   model = "deepseek/deepseek-chat"
+   ```
+4. **配置 Recovery 模型（可选）**：Recovery 使用独立的 profile，若不使用 Anthropic，可在 `config/recovery/` 下放置 `settings.json`、`models.json` 与 `auth.json`，其中 `settings.json` 必须保留 `defaultProvider`。
+
+#### 选项 C：交互式登录模型服务
+容器运行后，可随时进入交互式登录命令行：
+```sh
+docker exec -it bearbot bearbotd login
+```
+登录成功后凭据会自动写入 `profile/agent/auth.json`。
+
+---
+
+### 4. 启动与管理
+
+#### 方式一：使用 Docker Compose 启动（推荐）
+
+```sh
+# 构建镜像并后台启动
+docker compose up -d --build
+
+# 查看运行状态
+docker exec bearbot bearbotd status
+
+# 实时查看日志
+docker compose logs -f bearbot
+# 或者使用 bearbotd 专用日志命令查看具体组件
+docker exec bearbot bearbotd logs agent -f
+docker exec bearbot bearbotd logs gateway -f
+```
+
+#### 方式二：使用 `docker run` 直接运行
 
 ```sh
 docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
-  -v /srv/bearbot/profile:/bearbot/profile \
-  -v /srv/bearbot/workspace:/bearbot/workspace \
-  -v /srv/bearbot/config:/bearbot/config \
-  -e ANTHROPIC_API_KEY -e BEARBOT_RECOVERY_API_KEY -e TELEGRAM_BOT_TOKEN \
+  -v $(pwd)/local-test/profile:/bearbot/profile \
+  -v $(pwd)/local-test/workspace:/bearbot/workspace \
+  -v $(pwd)/local-test/config:/bearbot/config \
+  --env-file .env \
   bearbot
 ```
 
-- `--tmpfs /run/bearbot` 是必需的，进程之间的 Unix socket 放在这里。
-- `--stop-timeout` 要大于 `[daemon] shutdown_grace`（默认 90 秒），daemon 收到 SIGTERM 后等待 agent 的当前回合结束。
-- 启用 `[gateway.http]` 或扩展需要对外提供端口时，另加 `-p` 映射。
+> [!IMPORTANT]
+> - `--tmpfs /run/bearbot` 是必需参数，所有跨进程 Unix Socket 通信均位于此内存文件系统中。
+> - `--stop-timeout` 必须设置且大于 `[daemon] shutdown_grace`（默认 90 秒），以确保优雅停止 agent 当前正在执行的回合。
 
-### 成为管理员并绑定聊天
+---
 
-1. 生成一次性管理员令牌：
+### 5. 成为管理员并绑定聊天频道
 
+服务启动后，Gateway 会连接配置的 IM 平台（Telegram / QQ）。Bearbot 采用基于令牌的管理员授权和显式频道绑定机制：
+
+1. **生成一次性管理员令牌**：
    ```sh
    docker exec bearbot bearbotd admin token
    ```
+   终端会输出形如 `tok-xxxxxxxxxxxxxxxx` 的令牌（默认 10 分钟内有效）。
 
-2. 在机器人能收到消息的任意聊天中发送这段令牌，私聊机器人最可靠。成功后机器人回复“已成为 bearbot 管理员”，之后系统通知发到这个聊天。
-3. 在要交给 bot 的群或私聊中发送 `/bb attach`。bot 只处理已绑定频道中的消息；私聊默认处理全部消息，群默认只处理提及机器人的消息。
+2. **领取管理员身份**：
+   - 打开 Telegram 或 QQ，在私聊中将令牌直接发送给机器人（私聊最可靠）。
+   - 机器人核销成功后会回复：`已成为 bearbot 管理员`。之后所有的系统通知（故障报告、修复通知、回滚提醒）都会发送到该聊天。
 
-Telegram 群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或者把机器人设为群管理员。QQ 群内与 QQ 单聊中同一个人是两个身份，要分别领取令牌，或者由已有管理员用 `/bb admin add` 添加。
+3. **绑定工作频道**：
+   - 将机器人拉入群聊（或在私聊窗口中），发送绑定指令：
+     ```text
+     /bb attach
+     ```
+   - `/bb attach` 支持以下参数调整触发与回复行为：
+     - `--trigger mention`（默认群聊模式：仅在 @机器人 时触发）
+     - `--trigger all`（处理频道内的所有消息，适用于私聊或专属协作群）
+     - `--trigger prefix --prefix <前缀>`（匹配指定前缀的消息才触发）
+     - `--reply final|each`（`final` 只回复最终结果，`each` 每轮思考均回复）
 
-### 控制台
+> [!TIP]
+> - **Telegram 权限提示**：Telegram 群组中机器人要接收非 `/` 开头的消息，必须在 [@BotFather](https://t.me/BotFather) 中通过 `/setprivacy` 将 Privacy mode 设为 `Disable`，或者直接将机器人提升为群管理员。
+> - **QQ 平台提示**：QQ 群与 QQ 单聊在官方平台下用户的 OpenID 不同（属于两个身份）。如需在两处都作为管理员，可分别使用 `admin token` 领取，或在已认证的管理端通过 `/bb admin add <身份ID>` 添加。
 
-控制台用于本地调试：在终端中直接和运行中的 agent 对话，终端用户是内置管理员 `console:operator`，不需要领取令牌。`[platforms.console] enabled = true`（默认）并且 bearbotd 的标准输入是终端、管道或文件时启用。
+---
 
-```sh
-docker run -dit --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
-  -v /srv/bearbot/profile:/bearbot/profile \
-  -v /srv/bearbot/workspace:/bearbot/workspace \
-  -v /srv/bearbot/config:/bearbot/config \
-  -e ANTHROPIC_API_KEY -e BEARBOT_RECOVERY_API_KEY \
-  bearbot
-docker attach bearbot        # 按回车显示提示符；Ctrl-P Ctrl-Q 断开，容器继续运行
-```
+### 6. 控制台调试（Console 模式）
 
-只使用控制台时，其他平台可以全部设为 `enabled = false`。控制台中输入 `:help` 查看本地命令，`:file <路径> [文字]` 发送一个文件（相对路径从工作区目录开始），`::<文字>` 发送以 `:` 开头的普通消息，行尾为 `\` 时继续输入下一行；完整的按键与输入规则见 DESIGN.md 第 6.2.4 节。
+如果你希望在本地无 IM 账号的情况下快速验证 Agent 功能，可以使用内置的终端控制台。控制台用户拥有内置超级管理员权限（`console:operator`），无需生成或领取管理员令牌。
+
+1. 在 `bearbot.toml` 中确认控制台开启：
+   ```toml
+   [platforms.console]
+   enabled = true
+   ```
+2. 附加到运行中的容器终端（`docker-compose.yml` 默认已配置 `stdin_open: true` 与 `tty: true`）：
+   ```sh
+   docker attach bearbot
+   ```
+3. 按一下 `Enter` 键即可看到提示符 `bearbot> `：
+   - 直接输入文字并回车即可向 Agent 发送消息。
+   - 输入 `:help` 查看控制台命令列表。
+   - 输入 `:file <相对工作区的文件路径> [附带文字]` 向 Agent 发送工作区文件。
+   - 输入 `::<文字>` 发送以冒号开头的普通消息。
+   - 在行末输入 `\` 可换行输入多行消息。
+   - 按快捷键 `Ctrl-P` 然后 `Ctrl-Q` 可以脱离（detach）控制台，容器继续在后台运行。
+
+---
+
+### 7. Agent 的自我演进与验证
+
+进入聊天或控制台后，你就可以指导 Agent 自我扩展。例如：
+- 发送：`“请阅读 docs/ 目录下的开发指南，并为自己编写一个定时天气推送的扩展，放在 .pi/extensions/ 目录下”`
+- Agent 会调用工具编辑 `.pi/extensions/`。
+- 编写完成后，Agent 触发 `bearbot_check` 执行类型检查、位置检查与无害试运行。
+- 检查通过后调用 `bearbot_apply` 提交 Git 快照并平滑重启。
+- 如果新扩展导致语法错误或崩溃，Bearbot 的独立 Recovery Agent 会接管并自动诊断修复；若修复未达预期，管理员可随时发送 `/bb rollback` 回滚到最近一次稳定快照。
+
 
 ## 聊天中的 `/bb` 命令
 

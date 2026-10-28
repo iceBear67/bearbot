@@ -2048,6 +2048,8 @@ CMD ["run", "--config", "/bearbot/config/bearbot.toml"]
 
 `/run/bearbot` 由 daemon 在启动时创建并设置属主与权限（第 3 节）；运行时用 `--tmpfs /run/bearbot` 挂载为 tmpfs。
 
+`.github/workflows/docker.yml` 只在推送 `v*` 标签时运行：调用 `docker/github-builder` 的 `build.yml`，用默认构建参数在原生的 GitHub 运行器上分别构建 `linux/amd64` 与 `linux/arm64`，合并为一个多平台镜像推送到 `ghcr.io/<仓库>`，标签由 `docker/metadata-action` 按语义化版本生成（`{{version}}`、`{{major}}.{{minor}}`，正式版本另加 `latest`），使用 GitHub Actions 缓存，并用 GitHub OIDC 对镜像附带的 SLSA 构建证明签名。`better-sqlite3` 自带 `linux-x64` 与 `linux-arm64` 的预编译文件，所以两个平台都不需要 node-gyp。
+
 运行：
 
 ```sh
@@ -2087,6 +2089,7 @@ bearbot/
 ├── CLAUDE.md                             给 Claude Code 的开发说明：命令、测试规则、结构
 ├── DESIGN.md                             本文档；DESIGN_MULTI_WORKSPACE.md、DESIGN_STALE.md 不作为实现依据（第 0.3 节）
 ├── Dockerfile  .dockerignore             第 13 节
+├── .github/workflows/docker.yml          推送 v* 标签时构建并发布镜像（第 13 节）
 ├── package.json  package-lock.json       npm workspaces：gateway、packages/*；开发依赖 pi 1.4.0、typescript 7.0.2、@types/node、vitest；allowScripts
 ├── config/bearbot.example.toml           第 12 节
 ├── daemon/                               Go 模块 bearbot/daemon（第 5.1 节）
