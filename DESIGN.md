@@ -1177,7 +1177,7 @@ Telegram 消息的发送者：消息带有 `sender_chat` 时（匿名的群管�
 - 文本拆分：Telegram 的 markdown 文本按 `TelegramFormatConverter().fromMarkdown(片段).length <= 4096` 分段，gateway 自己的纯文本按长度 4096 分段；尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开，超长的单行被截开。带文件时，文件每 10 个一组（媒体组）；文本（按同样的方式计算长度）不超过 1024 个字符时作为第一组的说明文字，否则先发送分段后的文本，再发送不带说明文字的文件。QQ 与控制台的文本不分段，作为一条消息发送；QQ 的 markdown 文本按 `[platforms.qq] markdown` 以 markdown 消息或纯文本发送（第 6.2.2 节）。
 - `replyTo` 是要引用回复的消息 id（`message_log` 中的 `message_id`，也就是交给 `bearbot-im` 的消息的 `id`），只有第一条发出的消息带引用：
   - Telegram：作为 `reply_parameters` 交给适配器，适配器同时设置 `allow_sending_without_reply`，被引用的消息已经删除或不存在时消息照常发出、不带引用。
-  - QQ：先在目标会话串中查找这条消息（`kind` 为 `message` 或 `command` 的行，同一个 id 有多行时取最新的一行），找不到时返回 `-32000`“找不到要回复的消息：<id>”，什么也不发送；找到但 `quote_id` 为空（QQ 没有给出引用索引）时照常发送、不带引用，并记一条 info 日志；否则用适配器的 `postQQMessage` 发送，带 `message_reference: {message_id: <quote_id>, ignore_get_message_error: true}`，与 Telegram 一样，QQ 找不到被引用的消息时消息照常发出。
+  - QQ：先在目标会话串中查找这条消息（`kind` 为 `message` 或 `command` 的行，同一个 id 有多行时取最新的一行），找不到时返回 `-32000`“找不到要回复的消息：<id>”，什么也不发送；找到但 `quote_id` 为空（QQ 没有给出引用索引）时照常发送、不带引用，并记一条 info 日志；否则用适配器的 `postQQMessage` 发送，带 `message_reference: {message_id: <quote_id>, ignore_get_message_error: true}`，与 Telegram 一样，QQ 找不到被引用的消息时消息照常发出。带引用的这条消息总是以纯文本（`msg_type` 0）发送，不受 `[platforms.qq] markdown` 影响：markdown 消息带 `message_reference` 时，QQ 手机客户端把正文连续显示两遍。卡片在 QQ 中以 markdown 消息发送，没有纯文本的形式，所以第一条要发出的是卡片并且需要带引用时返回 `-32000`“QQ 不能引用回复卡片消息”，什么也不发送。
   - 控制台：适配器没有回复的调用，忽略 `replyTo`。
 - 每条发出的消息（分段后的每一段）都记入 `message_log`（`direction = "out"`，`kind = "message"`），内容为文本、附件的名称与大小、卡片；QQ 的消息另外记录发送响应中的引用索引（第 6.2.2 节）。
 - 平台发送失败时返回 `-32000`“发送失败：<平台错误>”，`bearbot-im` 把它记为诊断（第 6.2.2 节）。
@@ -2032,6 +2032,7 @@ ARG BEARBOT_GW_UID=1001
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bash ca-certificates curl git jq ripgrep fd-find procps tini tmux build-essential \
+      fontconfig fonts-noto-cjk fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 
@@ -2073,6 +2074,7 @@ CMD ["run", "--config", "/bearbot/config/bearbot.toml"]
 
 - node-build 阶段只构建 gateway：根目录的 `package.json` 是 npm workspaces（`gateway`、`packages/*`，`packages/` 目前不存在），`allowScripts` 禁止 `better-sqlite3`（包内带预编译文件）、`esbuild`、`@google/genai`、`protobufjs` 的安装脚本，所以 `npm ci` 不执行 node-gyp，这个阶段不需要 `python3` 与编译工具。`npm prune --omit=dev` 去掉开发依赖后，根目录的 `node_modules` 复制为 `/opt/bearbot/gateway/node_modules`。`gateway/drizzle` 必须复制：迁移目录按模块自身的位置查找。
 - 最终阶段保留 `build-essential`，agent 在扩展目录中安装原生 npm 模块时要编译。`node:24-bookworm-slim` 已经有 uid、gid 为 1000 的用户与组 `node`，所以先用 `userdel --remove node` 删除它，再按默认的 `BEARBOT_UID`、`BEARBOT_GID` 创建 `bearbot`。
+- `fonts-noto-cjk`（其中的 Noto Sans CJK SC 包含 Noto Sans SC 的全部字形）与 `fonts-noto-color-emoji` 供 agent 生成图片、PDF 等内容时显示中文与 emoji，`fontconfig` 提供 `fc-list`、`fc-match`。
 - `/usr/local/bin/python3.14` 这个名称是固定的；换用其他 `PYTHON_VERSION` 构建时它指向新的解释器，旧的虚拟环境因此无法通过版本检查（第 4.7 节）。
 - `ENV PI_CODING_AGENT_DIR` 使 `docker exec` 启动的命令行进程也带有这个变量。
 

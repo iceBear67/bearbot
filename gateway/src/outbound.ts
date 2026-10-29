@@ -307,6 +307,10 @@ export class Outbound {
         if (quote === null) {
           this.logger.info({ target, replyTo: content.replyTo }, "QQ gave no quote index for the replied-to message, sent without a quote");
         }
+        // QQ clients show the text of a quoting markdown message twice; a card is sent as markdown and has no plain form.
+        if (quote !== null && parts[0]!.card) {
+          throw new OutboundError("QQ 不能引用回复卡片消息");
+        }
       }
       let first: string | null = null;
       for (const [i, part] of parts.entries()) {
@@ -315,7 +319,8 @@ export class Outbound {
           sent = await adapter.postMessage(target, part.message, content.replyTo);
         } else if (i === 0 && quote !== null && adapter instanceof QQAdapter) {
           // Like Telegram's allow_sending_without_reply: a quoted message QQ no longer finds does not stop the send.
-          sent = await adapter.postQQMessage(target, part.message, {
+          // The quoting message is plain text: QQ clients show the text of a quoting markdown message twice.
+          sent = await adapter.postQQMessage(target, { raw: part.text, files: part.files.map(toUpload) }, {
             messageReference: { message_id: quote, ignore_get_message_error: true },
           });
         } else {

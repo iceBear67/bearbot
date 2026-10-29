@@ -31,6 +31,7 @@ ARG BEARBOT_GW_UID=1001
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       bash ca-certificates curl git jq ripgrep fd-find procps tini tmux build-essential \
+      fontconfig fonts-noto-cjk fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/* \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd
 

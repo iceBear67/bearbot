@@ -193,6 +193,9 @@ describe.skipIf(!QQ_APP || !QQ_SECRET)("live QQ sandbox (BEARBOT_TEST_QQ_APP_ID,
 
     const { ref: reply } = await peer.request("post", { target, markdown: "bearbot 引用测试：引用上一条", replyTo: messageId });
     expect(reply.startsWith(`${target}|`)).toBe(true);
+    const card = { type: "card", title: "确认", children: [{ type: "text", content: "不会发出" }] };
+    const quotedCard = await peer.requestError("post", { target, card, replyTo: messageId });
+    expect(quotedCard).toMatchObject({ code: -32000, message: expect.stringContaining("QQ 不能引用回复卡片消息") });
     const missing = await peer.requestError("post", { target, markdown: "不会发出", replyTo: "ROBOT1.0_missing" });
     expect(missing).toMatchObject({ code: -32000, message: expect.stringContaining("找不到要回复的消息：ROBOT1.0_missing") });
   });
