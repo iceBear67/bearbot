@@ -282,6 +282,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 | `/bb classifier status\|on\|off` | 查看、打开、关闭 classifier |
 | `/bb classifier allow\|deny\|clear <工具模式…>` | 管理 classifier 的放行与拒绝规则 |
 | `!bb <问题>` | 在不打断 agent 的情况下询问它正在做什么：一个单独的会话根据当前会话的内容回答，主会话看不到这次问答 |
+| `!steer <文本>` | 把这条消息插入自己正在进行的回合，不受绑定的 `interrupt` 设置限制；不能插入时按普通消息排队 |
 
 ## 命令行
 

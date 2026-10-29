@@ -37,6 +37,7 @@ export interface InboundMessage {
   reaction?: { emoji: string; added: boolean; messageId: string };
   attachments: Attachment[];
   trigger: boolean;           // whether the message triggers the agent; the gateway sets it, middleware may change it
+  steer?: true;               // an admin's `!steer`: inserted into the sender's own turn whatever the binding's interrupt is
   context: { from: string; text: string }[];   // extra content for the model
   meta: Record<string, unknown>;               // data passed between middleware
 }

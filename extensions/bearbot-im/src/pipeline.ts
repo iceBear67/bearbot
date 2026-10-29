@@ -204,6 +204,8 @@ export function mergeMessages(msgs: InboundMessage[]): InboundMessage {
   merged.mentionsBot = sorted.some((message) => message.mentionsBot);
   merged.edited = sorted.every((message) => message.edited);
   merged.stale = sorted.every((message) => message.stale);
+  if (sorted.some((message) => message.steer)) merged.steer = true;
+  else delete merged.steer;
   const replyTo = sorted.find((message) => message.replyTo)?.replyTo;
   if (replyTo) merged.replyTo = { ...replyTo };
   else delete merged.replyTo;

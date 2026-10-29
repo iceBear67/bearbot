@@ -78,6 +78,7 @@ export const HELP_TEXT = [
   "/bb classifier allow|deny <工具模式…>：增加放行或拒绝规则",
   "/bb classifier clear <工具模式…>：删除规则",
   "!bb <问题>：在不打断 agent 的情况下询问它正在做什么，由一个单独的会话根据当前会话的内容回答",
+  "!steer <文本>：把这条消息插入自己正在进行的回合，不受绑定的 interrupt 设置限制；不能插入时按普通消息排队",
 ].join("\n");
 
 type OptionKey = (typeof OPTION_KEYS)[number];

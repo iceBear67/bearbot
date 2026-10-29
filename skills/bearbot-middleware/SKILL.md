@@ -38,7 +38,7 @@ gateway 通知 message
 - **确认**：每条消息在被路由处理（放入旁观缓冲区、派发、被丢弃）后才算完成，`bearbot-im` 向 gateway 确认已经连续完成的最大 `seq`，以及这个位置之后已经完成的 `seq`。被中间件扣留的消息没有完成，进程重启后 gateway 会补发它们；已经完成的消息不会再补发。
 - **旁观缓冲区**：每个会话串保留最近 `observe_limit`（默认 30）条 `trigger = false` 的消息，派发时随同一会话串的消息一起交给模型（`<observed>`），然后清空。
 - **本轮角色**：本轮发送者的角色；`prompt()` 发起的回合为请求中的角色。`member` 回合中的工具调用由 classifier 检查。
-- **回合进行中到达的触发消息**：同时满足以下条件时插入当前回合：当前回合由聊天消息组成；消息所在的会话串就是本轮的 `origin`；发送者就是本轮的发送者，并且角色与本轮角色相同；该频道绑定的 `interrupt` 为 `steer`。其他情况（包括其他人的消息、`prompt()` 发起的回合）留在队列中排队。
+- **回合进行中到达的触发消息**：同时满足以下条件时插入当前回合：当前回合由聊天消息组成；消息所在的会话串就是本轮的 `origin`；发送者就是本轮的发送者，并且角色与本轮角色相同；该频道绑定的 `interrupt` 为 `steer`，或者消息带有 `steer: true`（管理员用 `!steer <文本>` 发送的消息）。其他情况（包括其他人的消息、`prompt()` 发起的回合）留在队列中排队。
 - **回复**：绑定的 `reply_mode = final` 时发送本轮最后一条助手消息的文本，`each` 时每条包含文本的助手消息都发送；文本为空或等于 `NO_REPLY` 时不发送。发送前经过出站中间件。
 - **交给模型的文本**：中间件写入 `msg.context` 的内容渲染为 `<context from="<from>">…</context>`，放在本轮的 `<bearbot-turn>` 中。`from` 原样取自中间件写入的条目，`bearbot-im` 不会填写或检查它，模型却把它当作中间件所属扩展的名称，所以中间件必须把 `from` 填成自己扩展的名称（传给 `useBearbot` 的 `name`）；`stale` 的消息只出现在 `<observed>` 中；命令消息带 `command`、`args` 属性。
 
@@ -82,6 +82,7 @@ export interface InboundMessage {
   reaction?: { emoji: string; added: boolean; messageId: string };
   attachments: Attachment[];
   trigger: boolean;           // 是否触发 agent；gateway 给出初始值，中间件可以修改
+  steer?: true;               // 管理员的 `!steer`：不论绑定的 interrupt，插入这个发送者自己的回合
   context: { from: string; text: string }[];   // 追加给模型的内容
   meta: Record<string, unknown>;               // 中间件之间传递数据
 }
@@ -161,7 +162,8 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 字段说明：
 
 - `kind`：`message` 普通消息；`command` 以 `/` 开头的命令（`/bb` 除外，它由 gateway 处理），`command = {name, args}`，例如 `{name: "/weather", args: "上海"}`，初始 `trigger` 为 `true`；`action` 卡片按钮；`reaction` 表情。`action`、`reaction` 的初始 `trigger` 为 `false`。
-- `trigger` 的初始值由绑定的触发方式决定：`mention` 时为“提及了 bot 或者是私聊”，`all` 时为 `true`，`prefix` 时为文本是否以前缀开头（前缀已去掉）。被编辑的消息为 `false`。
+- `trigger` 的初始值由绑定的触发方式决定：`mention` 时为“提及了 bot 或者是私聊”，`all` 时为 `true`，`prefix` 时为文本是否以前缀开头（前缀已去掉）。管理员的 `!steer <文本>` 不看触发方式，为 `true`，正文为 `!steer` 之后的文本。被编辑的消息为 `false`。
+- `steer`：只出现在管理员用 `!steer` 发送、没有被编辑的消息上，表示这条消息可以插入这个管理员自己正在进行的回合，不受绑定的 `interrupt` 限制。`ctl.merge` 合并的消息中任一条带有它时，合并结果也带有它。
 - `stale`：bot 长时间不可用后补发的过期消息，`trigger` 已改为 `false`，只作为旁观上下文。
 - `attachments[].path` 相对工作区目录；下载失败时只有 `error`。
 - `channel.id`、`thread`：例如 Telegram 群 `telegram:-100123`，论坛话题 `telegram:-100123:7`，QQ 群 `qq:group/<id>`，控制台 `console:main`。

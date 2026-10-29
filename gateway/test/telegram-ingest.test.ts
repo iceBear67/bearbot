@@ -170,6 +170,46 @@ test("!bb from a non-admin and !bb for another bot reach neither bearbot-im nor 
   expect(texts).toEqual(["普通消息"]);
 });
 
+test("!steer of an admin triggers without a mention and keeps entities as markdown; edited, formatted, non-admin and unbound ones", async () => {
+  const group = { id: -100444, type: "supergroup" as const, title: "steer" };
+  const unbound = { id: -100445, type: "supergroup" as const, title: "unbound" };
+  repo.putBinding({
+    channelId: "telegram:-100444",
+    platform: "telegram",
+    channelName: "steer",
+    trigger: "mention",
+    prefix: null,
+    replyMode: "final",
+    interrupt: "queue",
+    createdBy: "test",
+  });
+  repo.putAdmin({ identity: "telegram:111", displayName: "Alice", notifyThread: "telegram:111", addedBy: "test" });
+  await feed({ chat: group, from: ALICE, text: "!steer 换成表格" });
+  // The link entity covers "这个文档" (UTF-16 offset 8); the body has it as markdown, like the text of other messages.
+  await feed({
+    chat: group,
+    from: ALICE,
+    text: "!steer 按这个文档改",
+    entities: [{ type: "text_link", offset: 8, length: 4, url: "https://example.com/doc" }],
+  });
+  // "!steer" itself in bold: the body cannot be taken from the parsed text, the admin is told (the reply fails here).
+  await feed({ chat: group, from: ALICE, text: "!steer 加粗的命令", entities: [{ type: "bold", offset: 0, length: 6 }] });
+  await feed({ chat: group, from: ALICE, text: "!steer 编辑过", edit_date: Math.floor(Date.now() / 1000) });
+  await feed({ chat: group, from: BOB, text: "!steer 我也要插入" });
+  await feed({ chat: unbound, from: ALICE, text: "!steer 未绑定" });
+  await feed({ chat: group, from: ALICE, text: "没有提及" });
+  const rows = log
+    .inboundAfter(0, 100)
+    .filter((r) => r.payload.channel.id === "telegram:-100444" || r.payload.channel.id === "telegram:-100445")
+    .map((r) => ({ text: r.payload.text, trigger: r.payload.trigger, steer: r.payload.steer, role: r.payload.sender.role }));
+  expect(rows).toEqual([
+    { text: "换成表格", trigger: true, steer: true, role: "admin" },
+    { text: "按[这个文档](https://example.com/doc)改", trigger: true, steer: true, role: "admin" },
+    { text: "编辑过", trigger: false, steer: undefined, role: "admin" },
+    { text: "没有提及", trigger: false, steer: undefined, role: "admin" },
+  ]);
+});
+
 test("a message sent on behalf of a chat has the chat as sender, not the shared fake user", async () => {
   const legit = { id: -100111, type: "supergroup" as const, title: "legit" };
   const other = { id: -100222, type: "supergroup" as const, title: "attacker" };

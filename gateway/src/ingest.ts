@@ -158,6 +158,23 @@ const BB = /^\/bb(?:@(\S+))?(?:\s([\s\S]*))?$/i;
 /** "!bb", "!bb@name" followed by a question. */
 const BTW = /^!bb(?:@(\S+))?(?:\s([\s\S]*))?$/i;
 
+/** "!steer", "!steer@name" followed by the text to insert into the sender's own turn. */
+const STEER = /^!steer(?:@(\S+))?(?:\s([\s\S]*))?$/i;
+
+export const STEER_USAGE = "用法：!steer <文本>，把这条消息插入自己正在进行的回合";
+
+/**
+ * The text the adapter parsed (Telegram entities written as markdown, QQ plain text), with the leading mention
+ * markup of QQ removed the way the QQ adapter does for slash commands. The body of "!steer" comes from it, so it has
+ * the format of the text of other messages.
+ */
+function parsedTextOf(platform: string, message: Message): string {
+  if (platform === "qq" && (message.raw as QQRawMessage)._chat_is_mention === true) {
+    return stripQQMentions(message.text);
+  }
+  return message.text;
+}
+
 function defaultAttachmentName(a: Attachment, index: number): string {
   const ext = a.mimeType ? mime.getExtension(a.mimeType) : null;
   return `${a.type}-${index + 1}${ext ? `.${ext}` : ""}`;
@@ -303,31 +320,62 @@ export class Ingest {
       return;
     }
 
+    // 2. !steer: an admin message that goes on as a trigger message marked to be inserted into the sender's own
+    // turn (DESIGN 6.10)
+    let steerText: string | null = null;
+    const steer = STEER.exec(rawText);
+    if (steer) {
+      if (steer[1] !== undefined && steer[1].toLowerCase() !== adapter.userName.toLowerCase()) {
+        return; // addressed to another bot
+      }
+      if (!this.deps.repo.isAdmin(identity)) {
+        this.deps.logger.info({ sender: identity, thread: thread.id }, "!steer from a non-admin ignored");
+        return;
+      }
+      const parsed = STEER.exec(parsedTextOf(platform, message).trim());
+      if (!parsed) {
+        this.deps.outbound.postNotice(thread.id, "!steer 本身带有格式（例如加粗、代码或链接），无法取得后面的正文，请发送不带格式的 !steer");
+        return;
+      }
+      steerText = (parsed[2] ?? "").trim();
+      if (steerText === "" && message.attachments.length === 0) {
+        this.deps.outbound.postNotice(thread.id, STEER_USAGE);
+        return;
+      }
+    }
+
     // 3. binding
     const binding = this.deps.repo.binding(thread.channelId);
     if (!binding) {
+      if (steerText !== null) {
+        this.deps.outbound.postNotice(thread.id, "当前频道没有绑定，无法插入当前回合");
+      }
       return;
     }
 
     // 4. role, 5. trigger
     const role = this.roleOf(identity);
     const edited = message.metadata.edited;
-    let text = message.text;
+    let text = steerText ?? message.text;
     let trigger: boolean;
-    switch (binding.trigger) {
-      case "mention":
-        trigger = message.isMention === true || thread.isDM;
-        break;
-      case "all":
-        trigger = true;
-        break;
-      case "prefix": {
-        const body = text.trimStart();
-        trigger = binding.prefix !== null && body.startsWith(binding.prefix);
-        if (trigger) {
-          text = body.slice(binding.prefix!.length).trimStart();
+    if (steerText !== null) {
+      trigger = true;
+    } else {
+      switch (binding.trigger) {
+        case "mention":
+          trigger = message.isMention === true || thread.isDM;
+          break;
+        case "all":
+          trigger = true;
+          break;
+        case "prefix": {
+          const body = text.trimStart();
+          trigger = binding.prefix !== null && body.startsWith(binding.prefix);
+          if (trigger) {
+            text = body.slice(binding.prefix!.length).trimStart();
+          }
+          break;
         }
-        break;
       }
     }
     if (edited) {
@@ -351,6 +399,9 @@ export class Ingest {
     const replyTo = this.replyTo(adapter, thread.id, message);
     if (replyTo) {
       payload.replyTo = replyTo;
+    }
+    if (steerText !== null && !edited) {
+      payload.steer = true;
     }
     this.record("message", payload, binding.channelId, message.attachments, platform === "qq" ? qqQuoteIdOf(message.raw) : null);
   }

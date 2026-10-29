@@ -8,6 +8,17 @@ bearbot connects the pi coding agent (`@earendil-works/pi-coding-agent` 1.4.0) t
 
 `DESIGN.md` describes the implementation exactly, and code comments cite its sections (for example "DESIGN 5.12"). When code behavior changes, update the matching DESIGN.md section in the same change. `DESIGN_MULTI_WORKSPACE.md` and `DESIGN_STALE.md` are abandoned designs; do not use them. The WeCom adapter (`packages/chat-adapter-wecom/`, DESIGN 6.2.3) is not implemented, and config validation rejects `[platforms.wecom] enabled = true`.
 
+Several other documents repeat parts of DESIGN.md for different readers. A change that touches behavior, a command, a type in `sdk/index.ts` or a wire field must update every one of them that mentions it, in the same change. Search them for the old name or rule before you finish:
+
+| Document | Reader | Repeats |
+|---|---|---|
+| `skills/bearbot-middleware/SKILL.md` | the agent, when it writes middleware | message routing and steering rules (DESIGN 7.2), the `InboundMessage` type (8.2), initial `trigger` values (6.5), middleware semantics (8.3) |
+| `skills/bearbot-extension-dev/SKILL.md` | the agent, when it writes extensions | the SDK API (DESIGN 8), check and apply (5.6, 9) |
+| `skills/bearbot-recovery/SKILL.md` | the recovery agent | the repair flow (DESIGN 5.7, 10) |
+| `extensions/bearbot-im/prompt/*.md` | the model, in every turn | the turn text (DESIGN 7.3), roles (7.4), btw (7.11) |
+| `README.md` | administrators | `/bb` and `!` commands, configuration |
+| this file | Claude Code | the architecture summary below |
+
 ## Commands
 
 Run these from the repository root unless noted. Install dependencies with `npm ci`.
@@ -81,7 +92,7 @@ Every node script, including pi, tsc and npm, starts as `<node> <script>`. `<nod
 - The gateway receives all messages through `onDirectMessage`, `onNewMention` and `onNewMessage(/[\s\S]*/)` with the `concurrent` strategy. Handlers only write to SQLite and return; queueing, merging and debouncing happen in `bearbot-im`.
 - Data is stored in SQLite through drizzle (migrations in `gateway/drizzle/`), and `state/sqlite-state.ts` is the chat-sdk `StateAdapter` on the same database.
 - `commands.ts` handles `/bb` commands, `tokens.ts` the admin tokens, and `console-adapter.ts` the console platform. The console runs on file descriptors 3 and 4, which the daemon hands over from its own stdin and stdout. Its sender is the built-in administrator `console:operator`.
-- `btw.ts` handles `!bb <question>` from admins: it never enters `message_log` and goes to `bearbot-im` as a `btw` request (DESIGN 6.9).
+- `btw.ts` handles `!bb <question>` from admins: it never enters `message_log` and goes to `bearbot-im` as a `btw` request (DESIGN 6.9). `!steer <text>` from admins goes the other way: `ingest.ts` records it as a trigger message with `steer: true`, which `bearbot-im` inserts into the sender's own turn whatever the binding's `interrupt` is (DESIGN 6.10).
 - `safe-open.ts` opens workspace files without following symlinks.
 
 ### bearbot-im (`extensions/bearbot-im/`)

@@ -62,6 +62,7 @@ export function messageFromWire(wire: WireMessage): InboundMessage {
   if (wire.command) message.command = { ...wire.command };
   if (wire.action) message.action = { ...wire.action };
   if (wire.reaction) message.reaction = { ...wire.reaction };
+  if (wire.steer) message.steer = true;
   return message;
 }
 

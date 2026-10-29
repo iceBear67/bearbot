@@ -114,6 +114,8 @@ export type WireMessage = {
   reaction?: { emoji: string; added: boolean; messageId: string };
   attachments: WireAttachment[];
   trigger: boolean;
+  /** `!steer`: inserted into the sender's own turn whatever the binding's interrupt is (DESIGN 6.10). */
+  steer?: true;
   direction?: "in" | "out";
 };
 

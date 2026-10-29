@@ -1093,11 +1093,11 @@ await bot.initialize();
 `ingest.message(thread, message)`（三个消息处理器共用）：
 
 1. 取得用于识别的原始文本（Telegram 为 `raw.text`，没有时为 `raw.caption`；QQ 为去掉开头提及标记的 `raw.content`；控制台为输入的文本），去掉首尾空白后整段是一个以 `bearbot-` 开头（不区分大小写）的词时，交给令牌处理（第 6.6 节）后结束。像“bearbot-im 很好用”这样的句子不算令牌。
-2. 这段文本形如 `/bb` 或 `/bb@<名称>` 加参数时（例如 Telegram 中没有 `bot_command` 实体的命令、被编辑的命令），交给命令处理（第 6.7 节）后结束；`<名称>` 与本平台机器人的用户名不同（不区分大小写）时，这条命令是发给其他机器人的，直接丢弃，不执行也不交给 agent。形如 `!bb` 或 `!bb@<名称>` 加问题时（`!bb` 不区分大小写，后面必须是空白或结尾，所以 `!bbq` 是普通消息），交给 `!bb` 提问（第 6.9 节）后结束，`<名称>` 的规则相同。第 1、2 步在查找绑定之前执行，所以未绑定的频道中也可以领取令牌、执行 `/bb` 命令、使用 `!bb` 提问。
-3. 按 `thread.channelId` 查找绑定；未绑定（或者绑定的平台没有注册，第 6.4 节）则结束。
+2. 这段文本形如 `/bb` 或 `/bb@<名称>` 加参数时（例如 Telegram 中没有 `bot_command` 实体的命令、被编辑的命令），交给命令处理（第 6.7 节）后结束；`<名称>` 与本平台机器人的用户名不同（不区分大小写）时，这条命令是发给其他机器人的，直接丢弃，不执行也不交给 agent。形如 `!bb` 或 `!bb@<名称>` 加问题时（`!bb` 不区分大小写，后面必须是空白或结尾，所以 `!bbq` 是普通消息），交给 `!bb` 提问（第 6.9 节）后结束，`<名称>` 的规则相同。形如 `!steer` 或 `!steer@<名称>` 加文本时（规则与 `!bb` 相同），是插入当前回合的消息（第 6.10 节），`<名称>` 的规则相同：发送者不是管理员时只写入 gateway 日志后结束；否则正文取自适配器解析出的 `message.text`（Telegram 的实体已写成 markdown，QQ 为纯文本，与其他消息的正文相同；QQ 中提及机器人的消息先去掉开头的提及标记，做法与 QQ 适配器识别斜杠命令时相同），这段文本去掉首尾空白后同样以 `!steer` 开头时，正文为其后的文本，去掉首尾空白；否则（`!steer` 本身带有加粗、代码、链接等格式）回复“!steer 本身带有格式（例如加粗、代码或链接），无法取得后面的正文，请发送不带格式的 !steer”后结束。正文为空并且消息没有附件时回复用法说明后结束；其他情况这条消息继续按第 3～8 步处理。第 1、2 步在查找绑定之前执行，所以未绑定的频道中也可以领取令牌、执行 `/bb` 命令、使用 `!bb` 提问。
+3. 按 `thread.channelId` 查找绑定；未绑定（或者绑定的平台没有注册，第 6.4 节）则结束，`!steer` 的消息回复“当前频道没有绑定，无法插入当前回合”后结束。
 4. 计算发送者角色：身份在 `admin` 表中，或者是控制台的内置管理员 `console:operator`（第 6.2.4 节）时为 `admin`，否则为 `member`。
-5. 按绑定的 `trigger` 计算初始 `trigger` 值：`mention` 时为 `message.isMention || thread.isDM`；`all` 时为 true；`prefix` 时为去掉开头空白的文本是否以 `prefix` 开头，是的话正文去掉前缀与其后的空白。被编辑的消息为 false。
-6. 组成消息：`id`、`platform`、`channel`（频道 id、名称、是否私聊；名称优先取平台给出的，没有时用绑定中记录的）、`thread`、`sender`、`time`（带本地时区偏移的 ISO 8601）、`text`、`mentionsBot`、`edited`、`replyTo`、附件的名称与类型（没有名称时为 `<类型>-<序号>.<扩展名>`，同一条消息中重名的加上 `<序号>-` 前缀）。在一个事务中分配下一个 `seq`，写入 `message_log`（有附件时带 `pending: true`），然后返回。处理器到此结束，Telegram 的轮询可以立即继续。
+5. 按绑定的 `trigger` 计算初始 `trigger` 值：`mention` 时为 `message.isMention || thread.isDM`；`all` 时为 true；`prefix` 时为去掉开头空白的文本是否以 `prefix` 开头，是的话正文去掉前缀与其后的空白。`!steer` 的消息不看绑定的 `trigger`，为 true。被编辑的消息为 false。
+6. 组成消息：`id`、`platform`、`channel`（频道 id、名称、是否私聊；名称优先取平台给出的，没有时用绑定中记录的）、`thread`、`sender`、`time`（带本地时区偏移的 ISO 8601）、`text`、`mentionsBot`、`edited`、`replyTo`、`steer`（只有没有被编辑的 `!steer` 消息带有，值为 true）、附件的名称与类型（没有名称时为 `<类型>-<序号>.<扩展名>`，同一条消息中重名的加上 `<序号>-` 前缀）。在一个事务中分配下一个 `seq`，写入 `message_log`（有附件时带 `pending: true`），然后返回。处理器到此结束，Telegram 的轮询可以立即继续。
 7. 异步执行：附件逐个取得内容（附件自带的数据、`fetchData()`，只有 URL 的 QQ 附件用 `@chat-adapter/shared` 的 `downloadAttachment` 下载），每个附件最长 `attachment_timeout`，写入 `/bearbot/workspace/inbox/<本地日期>/<消息id>-<文件名>`（`/`、`\` 换成 `_`）。工作区由 agent 写入，所以 gateway 写入时不跟随符号链接：`inbox/` 与日期目录必须是真实的目录（不存在时以 0775 创建，是符号链接时失败），内容先写入同一目录中以 `O_CREAT|O_EXCL|O_NOFOLLOW` 新建的临时文件，确认打开的确实是这个位置上的普通文件，然后用 `rename(2)` 放到最终的文件名上（已有的文件或符号链接被替换，不会被跟随）。下载失败或超时的附件记为 `{error}`（例如“下载超时（60 秒）”），消息照常发送。全部附件处理完后去掉 `pending`，触发发送。
 8. 发送按第 6.8 节的规则进行：agent 状态为 `running` 且 `bearbot-im` 已连接时严格按 `seq` 顺序立即发送，前一条消息的附件没有下载完时，后面的消息等待；否则保留在 `message_log` 中，等待之后补发。agent 状态为 `incident`、`repairing`、`rolling_back`、`maintenance` 且该消息 `trigger` 为 true 时，回复维护提示（第 5.8 节第 4 步）。
 
@@ -1213,12 +1213,20 @@ gateway → `bearbot-im` 的请求：
 
 管理员发送 `!bb <问题>`，在不打断 agent 的情况下询问它正在做什么。回答来自 `bearbot-im` 中一个单独的 pi 会话，这个会话以主会话此刻的内容为依据（第 7.11 节）；主会话不会停下，也看不到这次问答。`/bb help` 中列出这个用法。
 
-- 识别方式见第 6.5 节第 2 步。`!bb` 不写入 `message_log`，也不作为消息交给 `bearbot-im`，所以不会进入派发队列，也不会出现在 `im_history` 中；回答作为机器人发出的消息记入 `message_log`。
+- 识别方式见第 6.5 节第 2 步。`!bb` 提问不写入 `message_log`，也不作为消息交给 `bearbot-im`，所以不会进入派发队列，也不会出现在 `im_history` 中；回答作为机器人发出的消息记入 `message_log`。
 - 只有管理员（包括控制台的内置管理员）可以使用。非管理员发送时不回应，只写入 gateway 日志：btw 会话中的工具调用不经过 classifier。
 - 问题为空时回复用法说明。
 - 没有完成 `hello` 的 `bearbot-im` 连接时（agent 进程没有运行，或者处在故障、维护、回滚等状态），回复“bearbot-im 没有连接 gateway（agent 状态：<gateway 最近收到的状态>），无法回答”。
 - 否则向 `bearbot-im` 发送 `btw` 请求（第 6.8 节）。等待期间每 5 秒向会话串发送一次 `typing`，失败时只记一次 gateway 日志。收到回答后以 markdown 发到发起的会话串，分段规则与 `bearbot-im` 的 `post` 相同，不引用原消息（原消息不在 `message_log` 中，QQ 无法引用）。请求失败时以纯文本回复“btw 提问失败：<原因>”。
 - 提问在后台执行，不阻塞平台的接收；同时进行的多个提问互不影响。
+
+### 6.10 `!steer` 插入当前回合
+
+管理员发送 `!steer <文本>`，在绑定的 `interrupt` 为 `queue` 时也能把这条消息插入自己正在进行的回合。`/bb help` 中列出这个用法。
+
+- 识别方式与正文的来源见第 6.5 节第 2 步。只有管理员（包括控制台的内置管理员）可以使用，非管理员发送时不回应，只写入 gateway 日志。
+- 这条消息与普通消息一样写入 `message_log` 并交给 `bearbot-im`（附件、`replyTo`、补发、过期与维护提示的规则相同），正文为 `!steer` 之后的文本，`trigger` 为 true，并带有 `steer: true`。被编辑的 `!steer` 消息 `trigger` 为 false，也不带 `steer`，与其他被编辑的消息一样只作为旁观消息，中间件把它与其他消息合并时也不会让合并结果带上 `steer`。频道没有绑定时回复“当前频道没有绑定，无法插入当前回合”；正文为空并且没有附件时回复用法说明。
+- `bearbot-im` 对带有 `steer` 的消息不检查绑定的 `interrupt`，其余插入条件与第 7.2 节相同，所以只能插入这个管理员自己的、以 `admin` 角色进行的回合。不能插入时（没有进行中的回合、回合属于其他人、会话串不同、`prompt()` 或系统回合）按普通的触发消息进入派发队列。
 
 ## 7. `bearbot-im` 扩展
 
@@ -1266,7 +1274,7 @@ gateway 通知 message
 - **派发之后**：`sendUserMessage` 返回时 pi 还没有开始运行（第 2.1 节），所以 `bearbot-im` 自己记录这一轮“已派发”，直到 `agent_start` 才算“运行中”。在这之前：
   - daemon 在事件流上转发 `extension_error {extensionPath: "<runtime>", event: "send_user_message"}` 时，说明 pi 拒绝了这一轮，按出错结束这一轮（错误为“pi 拒绝了这一轮：<原因>”）。这个错误只作为这一轮的出错记一次诊断，不再另记扩展错误的诊断；没有可以对应的回合时才按普通的 `extension_error` 记录；
   - pi 连续 60 秒处于空闲，既没有开始这一轮也没有报告错误时，同样按出错结束这一轮，防止事件丢失时队列一直停住；这一轮的文本记为已放弃，之后 pi 才开始它时中止那次运行并记一条 `warning` 诊断，之后才收到的拒绝错误也只记 `warning`，不影响当前回合。
-- **回合进行中到达的触发消息**：同时满足以下条件时，用 `pi.sendUserMessage(text, {deliverAs: "steer"})` 插入当前回合：当前回合是聊天消息的回合，并且已经派发；消息所在的会话串就是本轮的 `origin`；消息的发送者就是本轮的发送者，并且角色与本轮角色相同（回合进行中被添加或移除了管理员时排队）；该频道绑定的 `interrupt` 为 `steer`。`prompt()` 与系统回合没有发送者，不接受插入；同一会话串中其他人的消息（包括管理员在成员回合中的消息）也不插入，管理员需要打断时使用 `/bb stop`。插入的文本为带 `kind="steer"` 的 `<bearbot-turn>`，包含这个会话串的旁观消息，图片同样附上；插入的消息立即确认。其他情况一律留在队列中排队，其他群的消息永远不会插入当前回合。
+- **回合进行中到达的触发消息**：同时满足以下条件时，用 `pi.sendUserMessage(text, {deliverAs: "steer"})` 插入当前回合：当前回合是聊天消息的回合，并且已经派发；消息所在的会话串就是本轮的 `origin`；消息的发送者就是本轮的发送者，并且角色与本轮角色相同（回合进行中被添加或移除了管理员时排队）；该频道绑定的 `interrupt` 为 `steer`，或者消息带有 `steer: true`（管理员的 `!steer`，第 6.10 节）。`prompt()` 与系统回合没有发送者，不接受插入；同一会话串中其他人的消息（包括管理员在成员回合中的消息）也不插入，管理员需要打断时使用 `/bb stop`。插入的文本为带 `kind="steer"` 的 `<bearbot-turn>`，包含这个会话串的旁观消息，图片同样附上；插入的消息立即确认。其他情况一律留在队列中排队，其他群的消息永远不会插入当前回合。
 - **回复**：
   - `reply_mode = final`：在 `agent_settled` 时取本轮最后一条助手消息的文本；
   - `reply_mode = each`：每条助手消息在 `message_end` 时，只要包含文本就发送（`stopReason` 为 `error` 或 `aborted` 的除外），按顺序依次发送；
@@ -1544,6 +1552,7 @@ export interface InboundMessage {
   reaction?: { emoji: string; added: boolean; messageId: string };
   attachments: Attachment[];
   trigger: boolean;           // 是否触发 agent；gateway 给出初始值，中间件可以修改
+  steer?: true;               // 管理员的 `!steer`：不论绑定的 interrupt，插入这个发送者自己的回合
   context: { from: string; text: string }[];   // 追加给模型的内容
   meta: Record<string, unknown>;               // 中间件之间传递数据
 }
@@ -1645,7 +1654,7 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 - 中间件收到的是消息的副本，调用 `next(msg)` 把消息交给下一个中间件，可以在任何时候调用（例如定时器到期时），也可以把修改后或合并后的消息交给 `next`。同一次调用中，`next` 与 `ctl.drop` 只有第一次起作用，之后的调用不做任何事。
 - 中间件既没有调用 `next` 也没有调用 `ctl.drop` 时，消息处于“扣留”状态。被扣留的消息没有完成确认，进程重启后会被补发；在订阅者或某个中间件中停留超过 `hold_warn_after` 时产生一条 `warning` 诊断（每个位置一次）。`bearbot_status` 列出处理中的消息停在哪里、停了多久。
 - `ctl.drop(msg, reason)` 只丢弃仍然停在这个中间件中的 `seq`；已经交给后面的消息不受影响。丢弃的消息立即确认，最近 20 条丢弃记录在 `bearbot_status` 中列出。
-- 合并：`ctl.merge(msgs)` 产生的消息带有所有原始消息的 `seq`（去重后排序）。正文、附件、`context` 按消息时间的顺序合并（正文之间用换行连接，空正文跳过），`meta` 按时间顺序合并，其他字段（包括发送者）取最新的一条；`trigger`、`mentionsBot` 任一为 true 即为 true，`edited`、`stale` 全部为 true 才为 true；`replyTo` 取第一条带有它的消息。合并后的消息到达路由时，这些 `seq` 一起完成。被合并的消息各自的 `next` 不需要再调用。`msgs` 中的发送者或角色不全相同（`sender.id` 或 `sender.role` 不同）时，`merge` 抛出异常“merge 只能合并同一个发送者、同一角色的消息，收到了 <身份（角色）列表> 的消息”，这样合并后的文字不会记在没有写它的人名下，也不会得到写它时没有的角色（第 7.2 节每一轮只代表一个发送者）。在中间件函数中（同步执行，或者在它返回的 Promise 中）抛出时按下文的中间件异常处理；在中间件自己安排的定时器等回调中抛出时，异常没有被捕获（RPC 模式的 pi 不处理未捕获的异常），agent 进程退出，按进程意外退出处理（第 5.4 节）。第 8.4 节的防抖示例按会话串、发送者与角色分组，不会合并不同发送者或不同角色的消息。
+- 合并：`ctl.merge(msgs)` 产生的消息带有所有原始消息的 `seq`（去重后排序）。正文、附件、`context` 按消息时间的顺序合并（正文之间用换行连接，空正文跳过），`meta` 按时间顺序合并，其他字段（包括发送者）取最新的一条；`trigger`、`mentionsBot` 任一为 true 即为 true，任一带有 `steer` 时合并后的消息带有 `steer: true`，否则没有这个字段，`edited`、`stale` 全部为 true 才为 true；`replyTo` 取第一条带有它的消息。合并后的消息到达路由时，这些 `seq` 一起完成。被合并的消息各自的 `next` 不需要再调用。`msgs` 中的发送者或角色不全相同（`sender.id` 或 `sender.role` 不同）时，`merge` 抛出异常“merge 只能合并同一个发送者、同一角色的消息，收到了 <身份（角色）列表> 的消息”，这样合并后的文字不会记在没有写它的人名下，也不会得到写它时没有的角色（第 7.2 节每一轮只代表一个发送者）。在中间件函数中（同步执行，或者在它返回的 Promise 中）抛出时按下文的中间件异常处理；在中间件自己安排的定时器等回调中抛出时，异常没有被捕获（RPC 模式的 pi 不处理未捕获的异常），agent 进程退出，按进程意外退出处理（第 5.4 节）。第 8.4 节的防抖示例按会话串、发送者与角色分组，不会合并不同发送者或不同角色的消息。
 - `ctl.reply(msg, text)` 直接调用 gateway 的 `post` 发往 `msg.thread`（有消息 id 时作为对它的回复，只在 Telegram 上生效），不经过出站中间件。
 - 中间件抛出异常（同步或返回的 Promise 被拒绝）时，`bearbot-im` 记录 `error` 诊断，并以进入该中间件之前的消息调用下一个中间件；中间件在调用 `next` 或 `ctl.drop` 之后才抛出异常时只记诊断，消息不会被处理两次。
 - 中间件被取消注册时（调用 `use` 返回的函数，或者运行时替换时删除旧运行时的注册），它扣留的消息以进入它之前的内容交给下一个中间件，确认的位置不会因此停住。
@@ -2298,5 +2307,10 @@ bearbot/
   - 控制台中 `!bb <问题>` 作为 `btw` 请求交给 `bearbot-im`，回答发回控制台；`!bb@<机器人名>` 同样生效，`!bb@<其他机器人>` 被丢弃，空问题回复用法说明，`!bbq` 是普通消息；这些 `!bb` 都不出现在 `message_log` 中；
   - `bearbot-im` 返回错误时回复“btw 提问失败：<原因>”；没有 `bearbot-im` 连接时回复不可用说明；连接在回答之前断开时回复连接断开；
   - 真实的 bearbotd、gateway、pi 中，没有凭据时 btw 会话的错误（“No API key found for”）作为回复发回，主会话文件不变，没有诊断。
+- **`!steer`**：
+  - 控制台中 `!steer <文本>` 与 `!steer@<机器人名> <文本>` 写入 `message_log`，正文为 `!steer` 之后的文本并带有 `steer: true`；正文为空时回复用法说明；`!steer@<其他机器人>` 被丢弃；`!steerx` 是普通消息，不带 `steer`；`!bb steer …` 作为提问交给 `bearbot-im`；
+  - Telegram 入站（真实的 Telegram 适配器，第 6.2.1 节）：`mention` 绑定的群中管理员的 `!steer` 不需要提及即为触发消息；正文中的链接实体写成 markdown，与其他消息相同；`!steer` 本身带有加粗实体时不写入 `message_log`；被编辑的 `!steer` 写入时 `trigger` 为 false、不带 `steer`；非管理员的 `!steer` 与未绑定的群中的 `!steer` 都不写入 `message_log`。这个测试中 Bot API 无法连接，回复只写入日志，所以未绑定与带格式时的回复内容由人工在真实的 Telegram 群中确认；
+  - 绑定的 `interrupt` 为 `queue` 时，管理员自己的回合进行中，普通的一行留在队列中，`!steer` 的一行以 `kind="steer"` 插入本轮；其他发送者的回合进行中，`!steer` 的一行留在队列中；
+  - `canSteer` 与 `merge` 对 `steer` 的处理。
 - **内置工具**：确认 agent 进程与 recovery 中启用了 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`。
 - **记忆**：修改 `AGENTS.md` 后执行 `/bb compact` 与 `/bb new`，检查下一轮系统提示中的内容。

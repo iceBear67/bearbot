@@ -536,6 +536,41 @@ export default function (pi: ExtensionAPI) {
     expect(inputsWith("乙")).toHaveLength(1);
   }, 400_000);
 
+  test("!steer is steered into the admin's own turn while the binding's interrupt is queue, and queued in another sender's turn", async () => {
+    const env = newRoot();
+    unreachableModel(env);
+    env.writeWorkspaceFile(".pi/extensions/inputs.ts", INPUTS);
+    env.writeWorkspaceFile(".pi/extensions/senders.ts", SENDERS);
+    const d = await start(env);
+    await d.waitLine("控制台已连接", 90_000);
+    await d.waitRunning(90_000);
+    await d.waitReady(1, 60_000);
+    const inputsWith = (text: string) => inputs(env).filter((input) => input.includes(text));
+    const waitReceived = (text: string) => waitFor(`bearbot-im 收到“${text}”`, 30_000, () => received(env).some((entry) => entry.text === text));
+
+    // alice's turn runs while pi waits to retry; the operator's !steer line is not steered into another sender's turn.
+    d.send("as alice: 第一句");
+    await waitFor("alice 的回合", 60_000, () => inputsWith("第一句").length === 1);
+    d.send("!steer 插入别人的回合");
+    await waitReceived("插入别人的回合");
+    await sleep(500);
+    expect(inputsWith("插入别人的回合")).toEqual([]);
+
+    // After alice's turn the queued line is the operator's own turn: a plain line waits in the queue, a !steer
+    // line is steered into the turn.
+    const mark = d.lines.length;
+    d.send("/bb stop");
+    await d.waitLine("已中止正在进行的回合。", 30_000, mark);
+    await waitFor("操作员的回合", 60_000, () => inputsWith("插入别人的回合").length === 1);
+    expect(inputsWith("插入别人的回合")[0].split("\n")[0]).toBe(`<bearbot-turn role="admin" origin="console:main">`);
+    d.send("普通的一行");
+    await waitReceived("普通的一行");
+    d.send("!steer 补充一句");
+    await waitFor("补充插入本轮", 30_000, () => inputsWith("补充一句").length === 1);
+    expect(inputsWith("补充一句")[0].split("\n")[0]).toBe(`<bearbot-turn role="admin" origin="console:main" kind="steer">`);
+    expect(inputsWith("普通的一行")).toEqual([]);
+  }, 300_000);
+
   test("queued messages of other senders above queued_summary_after go to the model; a failed summary ends the turn", async () => {
     const env = newRoot({ queuedSummaryAfter: 1 });
     unreachableModel(env);

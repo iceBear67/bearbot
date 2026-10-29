@@ -43,6 +43,7 @@ export type WireMessage = {
   reaction?: { emoji: string; added: boolean; messageId: string };
   attachments: WireAttachment[];
   trigger: boolean;
+  steer?: true;
   direction?: "in" | "out";
 };
 

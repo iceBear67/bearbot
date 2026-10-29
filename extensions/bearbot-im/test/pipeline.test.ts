@@ -182,6 +182,14 @@ describe("inbound pipeline", () => {
     expect(merged.seq).toEqual([...earlier.seq, ...later.seq].sort((a, b) => a - b));
   });
 
+  test("merge keeps the steer mark of any message, and has none when no message has it", () => {
+    const steered = messageFromWire(wire({ text: "steer", time: "2026-10-26T14:00:01+08:00", steer: true }));
+    const plain = messageFromWire(wire({ text: "plain", time: "2026-10-26T14:00:05+08:00" }));
+    expect(steered.steer).toBe(true);
+    expect(mergeMessages([plain, steered]).steer).toBe(true);
+    expect("steer" in mergeMessages([plain, messageFromWire(wire({ text: "again" }))])).toBe(false);
+  });
+
   test("merge rejects messages of different senders", () => {
     const alice = messageFromWire(wire({ text: "alice" }));
     const bob = messageFromWire(wire({ text: "bob", sender: { id: "telegram:456", name: "Bob", role: "member", isBot: false } }));
@@ -463,6 +471,23 @@ describe("steering into the current turn", () => {
     expect(canSteer(turn({ phase: "ending" }), messageFromWire(wire({})), steerBinding)).toBe(false);
     expect(canSteer(turn(), messageFromWire(wire({ trigger: false })), steerBinding)).toBe(false);
     expect(canSteer(turn(), messageFromWire(wire({ stale: true })), steerBinding)).toBe(false);
+  });
+
+  test("!steer is steered whatever the binding's interrupt; the other conditions still decide", () => {
+    const queueBinding: WireBinding = { ...steerBinding, interrupt: "queue" };
+    const root = { id: "telegram:1", name: "Root", role: "admin" as const, isBot: false };
+    const rootTurn = turn({ role: "admin", senders: [root] });
+    const steer = (overrides: Parameters<typeof wire>[0]) => messageFromWire(wire({ sender: root, steer: true, ...overrides }));
+    expect(canSteer(rootTurn, messageFromWire(wire({ sender: root })), queueBinding)).toBe(false);
+    expect(canSteer(rootTurn, steer({}), queueBinding)).toBe(true);
+    expect(canSteer(rootTurn, steer({}), undefined)).toBe(true);
+    // Another sender's turn, a member turn, another thread, a prompt() turn, a stale or not triggering message.
+    expect(canSteer(turn({ role: "admin", senders: [{ ...alice, role: "admin" }] }), steer({}), queueBinding)).toBe(false);
+    expect(canSteer(turn(), steer({}), queueBinding)).toBe(false);
+    expect(canSteer({ ...rootTurn, origin: "telegram:-100123:7" }, steer({}), queueBinding)).toBe(false);
+    expect(canSteer({ ...rootTurn, kind: "prompt", senders: [] }, steer({}), queueBinding)).toBe(false);
+    expect(canSteer(rootTurn, steer({ stale: true }), queueBinding)).toBe(false);
+    expect(canSteer(rootTurn, steer({ trigger: false }), queueBinding)).toBe(false);
   });
 });
 

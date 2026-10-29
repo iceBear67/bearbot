@@ -170,7 +170,7 @@ export function bindingFor(bindings: readonly WireBinding[], target: string): Wi
 /**
  * Whether a routed message is steered into the current turn (7.2): a trigger message of the turn's own sender, with
  * the turn's role, in the turn's thread, while the turn is dispatched or running, in a channel bound with
- * `interrupt = steer`. prompt() and system turns have no sender, so nothing is steered into them.
+ * `interrupt = steer` or marked by `!steer`. prompt() and system turns have no sender, so nothing is steered into them.
  */
 export function canSteer(
   turn: Pick<ActiveTurn, "kind" | "phase" | "origin" | "role" | "senders">,
@@ -184,7 +184,7 @@ export function canSteer(
     && turn.origin === msg.thread
     && msg.sender.id === turn.senders[0].id
     && msg.sender.role === turn.role
-    && binding?.interrupt === "steer";
+    && (binding?.interrupt === "steer" || msg.steer === true);
 }
 
 export type TurnPhase = "preparing" | "dispatched" | "running" | "ending";

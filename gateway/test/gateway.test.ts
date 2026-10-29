@@ -933,6 +933,35 @@ describe("!bb from the console", () => {
     expect(history.messages.filter((m: any) => m.direction === "in").map((m: any) => m.text)).toEqual(["!bbq 普通消息"]);
   });
 
+  test("!steer is recorded as a trigger message marked steer; an empty one gets the usage, !steerx is a plain message, !bb steer a question", async () => {
+    const { env, gw } = await start();
+    track(await connectDaemon(env));
+    const { peer } = await connectBridge(env);
+    track(peer);
+    const from = nthOf(gw);
+
+    gw.type("!steer");
+    await gw.waitConsole(/用法：!steer <文本>，把这条消息插入自己正在进行的回合/, from);
+    gw.type("!steer@otherbot 不是给 bearbot 的");
+    gw.type("!STEER@bearbot   补充一句");
+    const steered = await peer.waitMessage((m) => m.text === "补充一句");
+    expect(steered).toMatchObject({ trigger: true, steer: true, sender: { id: "console:operator", role: "admin" } });
+
+    gw.type("!bb steer 是一个问题");
+    const question = await peer.waitRequestEntry("btw");
+    expect(question.params.question).toBe("steer 是一个问题");
+
+    gw.type("!steerx 普通消息");
+    const plain = await peer.waitMessage((m) => m.text === "!steerx 普通消息");
+    expect(plain.steer).toBeUndefined();
+    expect(peer.messages().map((m) => m.text)).toEqual(["补充一句", "!steerx 普通消息"]);
+    const history = await peer.request("history", { target: "console:main", limit: 20 });
+    expect(history.messages.filter((m: any) => m.direction === "in").map((m: any) => [m.text, m.steer])).toEqual([
+      ["补充一句", true],
+      ["!steerx 普通消息", undefined],
+    ]);
+  });
+
   test("without bearbot-im, and when bearbot-im disconnects before answering", async () => {
     const { env, gw } = await start();
     track(await connectDaemon(env));
