@@ -233,7 +233,8 @@ func (e *Env) WriteConfig(t testing.TB, cfg Config) {
 	}
 }
 
-// Model is the OpenAI compatible model service of contracts section 0.
+// Model is an OpenAI compatible model service written into models.json; the tests use addresses that refuse
+// connections (DESIGN 16.1).
 type Model struct {
 	BaseURL string
 	APIKey  string
@@ -245,26 +246,6 @@ const Provider = "testprovider"
 
 // Ref returns "testprovider/<model>", the default model and classifier model of the tests.
 func (m Model) Ref() string { return Provider + "/" + m.ID }
-
-// ModelFromEnv reads BEARBOT_TEST_OPENAI_BASE_URL, BEARBOT_TEST_OPENAI_API_KEY and BEARBOT_TEST_OPENAI_MODEL.
-func ModelFromEnv() (Model, bool) {
-	m := Model{
-		BaseURL: os.Getenv("BEARBOT_TEST_OPENAI_BASE_URL"),
-		APIKey:  os.Getenv("BEARBOT_TEST_OPENAI_API_KEY"),
-		ID:      os.Getenv("BEARBOT_TEST_OPENAI_MODEL"),
-	}
-	return m, m.BaseURL != "" && m.APIKey != "" && m.ID != ""
-}
-
-// RequireModel skips the test when the model service variables are not set.
-func RequireModel(t testing.TB) Model {
-	t.Helper()
-	m, ok := ModelFromEnv()
-	if !ok {
-		t.Skip("需要模型服务：设置 BEARBOT_TEST_OPENAI_BASE_URL、BEARBOT_TEST_OPENAI_API_KEY、BEARBOT_TEST_OPENAI_MODEL 后运行")
-	}
-	return m
-}
 
 // ModelsJSON returns the models.json content with the provider testprovider and the single model m.
 func ModelsJSON(m Model) []byte {

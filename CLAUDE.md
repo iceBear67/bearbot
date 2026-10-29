@@ -26,10 +26,7 @@ Run these from the repository root unless noted. Install dependencies with `npm 
 - The `daemon/e2e` suite takes about 11 minutes, which exceeds the default `go test` timeout of 10 minutes, so always pass `-timeout`.
 - The gateway console tests need util-linux `script` and `tmux`. The Go and TS test environments symlink `/usr/bin/python3.14`, `/usr/bin/uv` and `/usr/bin/uvx`.
 - Run `gofmt` on Go changes.
-- Tests that need external services skip when their environment variables are missing:
-  - OpenAI-compatible model: `BEARBOT_TEST_OPENAI_BASE_URL`, `_API_KEY`, `_MODEL` (written as provider `testprovider`)
-  - Telegram: `BEARBOT_TEST_TELEGRAM_BOT_TOKEN`, `_CHAT_ID`
-  - QQ: `BEARBOT_TEST_QQ_APP_ID`, `_CLIENT_SECRET`; the quote test also needs `BEARBOT_TEST_QQ_GROUP_OPENID`
+- No test needs a model service or real IM credentials. Tests that need a model write provider `testprovider` with an address that refuses connections.
 
 ### Testing rules
 

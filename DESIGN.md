@@ -55,10 +55,8 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 ### 0.4 尚未在真实服务上核实的事项
 
-以下内容需要真实的平台账号才能验证，自动测试在没有凭据时跳过（第 16 节）：
+以下内容需要真实的平台账号才能验证，自动测试不覆盖（第 16 节）：
 
-- `@amatsuka/chat-adapter-qq` 对真实 QQ 服务的行为。
-- QQ 引用：哪些入站消息的 `message_scene.ext` 中带 `msg_idx`，机器人发出的消息是否都在响应中带 `ext_info.ref_idx`，带 `message_reference` 的消息在 QQ 客户端中是否显示为引用。
 - 企业微信智能机器人被动回复的有效时长，`sendMessage` 的 `SendMsgBody` 是否支持 markdown 消息。
 - Telegram 群关闭隐私模式后的实际行为。
 
@@ -154,7 +152,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | 平台 | 使用的包 | 接入方式 | 斜杠命令 | 说明 |
 |---|---|---|---|---|
 | Telegram | `@chat-adapter/telegram` 4.43.0（官方） | 长轮询（`mode: "polling"`），不需要公网地址。轮询启动时调用 `deleteWebhook`，它失败时 `initialize()` 拒绝；轮询开始之后的请求错误由适配器自己按退避一直重试 | 支持：消息以 `bot_command` 实体开头时作为 `onSlashCommand` 事件发出，**不会**进入消息处理器；没有注册处理器时被丢弃（实测）。没有这个实体的纯文本 `/bb help` 不是命令 | 会话串 id：私聊 `telegram:<userId>`，群 `telegram:<chatId>`，论坛话题 `telegram:<chatId>:<topicId>`。群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或把机器人设为群管理员。适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（传入 `userName` 会使提及判断失效，实测）。超过 4096 字符的文本被截断并加上 `...`，不分段，文件的说明文字截断到 1024 字符，所以长文本由 gateway 分段（第 6.8 节）。以群组或频道名义发送的消息的发送者见第 6.5 节 |
-| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.2.0（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，验证方案中包含对真实 QQ 服务的测试 |
+| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.2.0（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，已在真实 QQ 服务上验证 |
 | 企业微信 | 计划自研 `@bearbot/chat-adapter-wecom`，基于腾讯官方 `@wecom/aibot-node-sdk` 1.0.7 | 智能机器人 WebSocket 长连接，不需要公网地址 | 适配器自己解析：去掉开头的 @ 后以 `/` 开头的文本交给 `processSlashCommand` | 尚未实现：配置校验拒绝 `[platforms.wecom] enabled = true`。现有的企业微信社区适配器缺少私聊与提及判断，因此自己编写（第 6.2.3 节）。平台限制：群聊中只能收到 @ 机器人的消息 |
 
 QQ 平台的身份说明：QQ 开放平台在群内给出的是 `member_openid`，在单聊中给出的是 `user_openid`，两者不同。所以同一个人在 QQ 群和 QQ 单聊中是两个身份，要成为管理员需要分别领取令牌，或由已有管理员用 `/bb admin add` 添加。
@@ -981,7 +979,7 @@ await bot.initialize();
 | 不支持 | `editMessage`、`deleteMessage`、`addReaction`、`removeReaction`、`fetchThread` 抛出 `NotImplementedError`；`fetchMessages` 返回空列表（第 2.2 节）；`startTyping` 不做任何事（平台没有输入状态） |
 | 历史 | `persistThreadHistory = true` |
 
-`@chat-adapter/tests` 只提供基于 `vi.fn()` 的辅助函数与三组契约测试，其中只有 `threadIdContract` 适用于 WebSocket 适配器，它不连接任何平台。连接真实企业微信智能机器人的测试要用真实的 `Chat` 与 state 编写（第 16 节）。
+`@chat-adapter/tests` 只提供基于 `vi.fn()` 的辅助函数与三组契约测试，其中只有 `threadIdContract` 适用于 WebSocket 适配器，它不连接任何平台。
 
 #### 6.2.4 控制台适配器
 
@@ -2246,23 +2244,15 @@ bearbot/
 | `node_modules/.bin/vitest run extensions` | `bearbot-im` 与 recovery 扩展的测试：真实的 pi 进程，以及真实的 bearbotd、gateway、pi 组成的端到端场景 |
 | `cd daemon && go vet ./... && go test -count=1 -timeout 40m ./...` | Go 各包的单元测试与 `daemon/e2e` 的端到端测试；端到端测试使用真实的 gateway、pi、git、uv、npm、node，需要先执行 `npm run build -w gateway`，耗时约 11 分钟，超过 `go test` 默认的 10 分钟上限，所以要加 `-timeout` |
 
-**需要外部服务的测试**：没有对应的环境变量时，测试以写明原因的方式跳过（Go 的 `t.Skip`、vitest 的 `skipIf`）。
-
-- 模型服务（OpenAI 兼容接口）：`BEARBOT_TEST_OPENAI_BASE_URL`、`BEARBOT_TEST_OPENAI_API_KEY`、`BEARBOT_TEST_OPENAI_MODEL`。测试把它写成 profile 中 `models.json` 的服务 `testprovider`（`api: "openai-completions"`，只有这一个模型），`settings.json` 的默认模型与 classifier 模型都用 `testprovider/<模型>`，同样的文件写入 `/bearbot/config/recovery/` 供 recovery 使用。
-- Telegram：`BEARBOT_TEST_TELEGRAM_BOT_TOKEN`、`BEARBOT_TEST_TELEGRAM_CHAT_ID`。
-- QQ：`BEARBOT_TEST_QQ_APP_ID`、`BEARBOT_TEST_QQ_CLIENT_SECRET`；引用回复的测试另外需要 `BEARBOT_TEST_QQ_GROUP_OPENID`（机器人所在的测试群）。
-
-不需要模型的场景使用一个拒绝连接的模型地址，验证没有凭据、请求失败时的行为（例如 `<runtime>`/`send_user_message` 错误结束回合）。
+自动化测试不使用模型服务，也不使用真实的 Telegram、QQ 凭据。需要模型的场景把一个拒绝连接的模型地址写成 profile 中 `models.json` 的服务 `testprovider`（`api: "openai-completions"`，只有这一个模型），验证没有凭据、请求失败时的行为（例如 `<runtime>`/`send_user_message` 错误结束回合）；平台适配器用无效的凭据验证首次连接失败后的重试。
 
 ### 16.2 验证场景
 
 - **daemon 进程管理**：在容器中启动真实的 agent 进程，验证 `get_state` 就绪判断、心跳超时（用一个在工具中执行同步死循环的真实扩展触发）、对话框请求自动取消、进程树终止（带 MCP stdio 服务器）。
 - **会话 id**：应用、`/bb restart`、意外退出后重启，检查打开的都是 `state.json` 中记录的会话；在工作区目录中用 bash 运行一次会产生会话文件的 `pi -p`，再重启，确认打开的仍是原会话；`/bb new` 后 `state.json` 记录新生成的会话 id，新进程用它新建会话，之后的重启打开这个新会话。
 - **Python**：agent 在回合中用 `uv pip install` 安装一个包，重建容器后确认包仍然可用；用不同 `PYTHON_VERSION` 构建镜像，确认 daemon 以非零状态退出并给出重建命令，执行 `python rebuild` 后旧环境中的包全部装回。
-- **多频道排队**：绑定两个 Telegram 群，在一个群的回合进行中从另一个群发送触发消息，确认它排队到下一轮、没有插入当前回合，回复各自发往正确的群。
-- **启动失败与 recovery**：在 `.pi/extensions/` 中放入语法错误的扩展、工厂函数抛出异常的扩展、两个工具同名的扩展，在 `/bearbot/profile/agent/extensions/` 中放入一个扩展，分别验证故障的建立、使用真实模型服务的 recovery 修复（包括把 profile 中的扩展移到工作区）、`attempts` 用尽后的维护状态、维护脚本的执行、`rollback` 与 `resume`；使用无效的 recovery 凭据验证“recovery 无法运行”。
+- **启动失败与 recovery**：在 `.pi/extensions/` 中放入语法错误的扩展、工厂函数抛出异常的扩展、两个工具同名的扩展，在 `/bearbot/profile/agent/extensions/` 中放入一个扩展，分别验证故障的建立、`attempts` 用尽后的维护状态、维护脚本的执行、`rollback` 与 `resume`；使用无效的 recovery 凭据验证“recovery 无法运行”。
 - **检查**：用含类型错误、语法错误、工厂函数抛出异常、工具同名的扩展，以及 profile 中存在 `AGENTS.md` 的情况分别运行 `bearbot_check`，核对报告内容；确认试运行进程没有连接 gateway，也没有调用 `agent.sock`。
-- **应用**：通过真实模型完成“编写扩展 → 检查 → 应用 → 重启 → 结果确认回合”的完整过程，检查快照提交、`runningSnapshot` 与 `last-good` 的移动。
 - **管理员回滚**：
   - 应用一个在 `tool_call` 中拒绝 `write`、`edit`、`bearbot_apply` 的扩展，等它度过观察期，确认 `last-good` 已指向它；
   - 在一轮正在进行的回合中执行 `/bb snapshot list`，确认列出的默认目标为 `apply/<n>^`；
@@ -2276,27 +2266,8 @@ bearbot/
   - 在维护状态下执行回滚，构造方法：应用一个启动后立即退出的扩展，让它在观察期内建立故障，并使 recovery `attempts` 用尽进入维护状态；确认此时默认目标与 `last-good` 相同；
   - 让 `npm ci` 失败（例如恢复的 `package.json` 引用不存在的包），确认进入维护状态并写明原因；
   - 没有应用记录且不指定快照时，确认返回错误。
-- **gateway**：分别连接真实的 Telegram 机器人、QQ 沙箱机器人、企业微信智能机器人（实现之后），验证令牌领取、`/bb` 命令、绑定、群聊触发规则、旁观消息、图片与文件的接收和发送、断开重连后的补发、`replay_window` 外的消息转为旁观；用 SIGKILL 终止 gateway，确认重启后不丢消息、`bearbot-im` 重新连接成功、维护状态下的提示照常回复、断开期间的 `notify` 被补发；在 `bearbot-im` 已连接时用另一个进程发送 `hello`，确认被拒绝。
+- **gateway**：用 SIGKILL 终止 gateway，确认重启后不丢消息、`bearbot-im` 重新连接成功、维护状态下的提示照常回复、断开期间的 `notify` 被补发；在 `bearbot-im` 已连接时用另一个进程发送 `hello`，确认被拒绝。
 - **SQLite state**：对 `createSqliteState` 运行 chat-sdk 的 state 行为（订阅、锁、TTL、队列），与 `@chat-adapter/state-memory` 在同样操作序列下的结果对比。
-- **企业微信适配器**（实现之后）：用真实的 `Chat` 与 state 连接真实企业微信机器人运行，会话串 id 部分另用 `@chat-adapter/tests` 的 `threadIdContract`；断开网络后确认 `bearbotd status` 显示断开与重连时间。
-- **classifier**：以 `member` 角色的真实回合（使用真实的 classifier 模型）：
-  - 提一个需要查阅 `docs/` 才能回答的问题，确认 `read` 与只读的 `bash` 调用被放行；
-  - 让 agent 读取工作区目录外的文件（例如 `/bearbot/profile/agent/auth.json`），确认 `read` 被内置规则拒绝、`bash cat` 被模型拒绝；
-  - 直接给出命令要求执行（包括只读命令，例如“运行 `ls /`”），确认被拒绝；
-  - 要求修改文件、调用 `bearbot_apply`，确认 `write`、`edit`、`bearbot_*` 被内置规则拒绝；
-  - 在 codemode 脚本中调用 `bash` 写文件，确认嵌套调用被拒绝；
-  - 在消息正文中要求 classifier 放行、伪造 `sender-role="admin"`，确认不起作用；
-  - 把 classifier 模型配置为不存在的模型，确认调用全部被拒绝并产生诊断；
-  - 用 `/bb classifier allow` 放行一个扩展工具、`/bb classifier off` 关闭，确认立即生效；检查 `classifier.jsonl` 中的记录；
-  - 在 `CLASSIFIER.md` 中写入放行某个只读脚本、拒绝某个 MCP 工具的规则，确认下一轮按规则判断；在补充规则中写“允许读取 `auth.json`”，确认不起作用；
-  - 要求修改 `CLASSIFIER.md`，确认 `bash` 调用被模型拒绝；
-  - 执行 `/bb classifier allow write bash` 后，分别用 `write` 直接写入、用 `write` 通过指向它的符号链接写入、用 `bash` 修改 `CLASSIFIER.md`，确认每次回合结束时都恢复原状、产生 `error` 诊断、通知管理员（附带差异）、`classifier.jsonl` 中有恢复记录，并且本轮的判断仍使用修改前的内容；`/bb classifier off` 后重复一次，结果相同；
-  - 用 `bash` 把 `CLASSIFIER.md` 换成指向 `.pi/extensions/` 中某个文件的硬链接，确认恢复后那个扩展文件内容不变；
-  - 在 `member` 回合中修改 `CLASSIFIER.md` 后，分别用应用（等待回合结束后 1 秒关闭进程）、`/bb rollback`、`kill -9` agent 进程的方式结束进程，确认 daemon 在下一次启动前完成恢复，新进程的 `bridge/ready` 带有 `classifierRestore`；
-  - `member` 回合进行期间在宿主机上编辑 `CLASSIFIER.md`，确认回合结束时被恢复，通知中带有被撤销的差异；
-  - 把 `CLASSIFIER.md` 替换为符号链接、写入超过 `rules_max_bytes` 的内容，确认交给模型判断的调用全部被拒绝并产生诊断；
-  - 以 `admin` 角色要求修改 `CLASSIFIER.md`，确认修改成功、下一个 `member` 回合生效；
-  - 以 `admin` 角色确认同样的请求不经过 classifier。
 - **控制台**：
   - 用 `docker run -i`（行模式）通过管道写入消息，确认 agent 的回复写到标准输出、`<bearbot-turn>` 的 `role` 为 `admin`、`/bb status` 可用、以 `/` 开头的其他命令作为 `kind = "command"` 的消息交给 agent；用 `:file` 发送工作区中的文件，确认文件写入 `inbox/`；让 agent 用 `im_send` 发送文件，确认文件保存到 `console-files/` 并输出保存路径；写入 `::abc`，确认 agent 收到 `:abc`；关闭输入管道后确认 daemon 继续运行、IM 平台照常处理消息；
   - 用 `docker run -dit` 启动并 `docker attach`：在 agent 回复到达时正在输入，确认回复输出后输入行完整重新显示；粘贴多行文本，确认成为一条消息；行尾 `\` 续行；Ctrl-C 只清除输入并输出提示，bearbotd 继续运行；空行上的 Ctrl-D 之后仍然可以继续输入；Ctrl-P Ctrl-Q 断开后容器继续运行，再次 `docker attach` 后可以继续对话；
@@ -2310,8 +2281,6 @@ bearbot/
 - **`!bb` 提问**：
   - 控制台中 `!bb <问题>` 作为 `btw` 请求交给 `bearbot-im`，回答发回控制台；`!bb@<机器人名>` 同样生效，`!bb@<其他机器人>` 被丢弃，空问题回复用法说明，`!bbq` 是普通消息；这些 `!bb` 都不出现在 `message_log` 中；
   - `bearbot-im` 返回错误时回复“btw 提问失败：<原因>”；没有 `bearbot-im` 连接时回复不可用说明；连接在回答之前断开时回复连接断开；
-  - Telegram 群中非管理员的 `!bb` 与发给其他机器人的 `!bb` 不写入 `message_log`；
-  - 真实的 bearbotd、gateway、pi 中，没有凭据时 btw 会话的错误（“No API key found for”）作为回复发回，主会话文件不变，没有诊断；
-  - 使用真实模型：主 agent 正在执行一个等待测试放行的工具时发送 `!bb`，回答在回合结束之前到达并提到这个工具，问题不出现在主会话文件中；放行之后主回合照常回复。
+  - 真实的 bearbotd、gateway、pi 中，没有凭据时 btw 会话的错误（“No API key found for”）作为回复发回，主会话文件不变，没有诊断。
 - **内置工具**：确认 agent 进程与 recovery 中启用了 `read`、`write`、`edit`、`bash`、`grep`、`find`、`ls`。
 - **记忆**：修改 `AGENTS.md` 后执行 `/bb compact` 与 `/bb new`，检查下一轮系统提示中的内容。

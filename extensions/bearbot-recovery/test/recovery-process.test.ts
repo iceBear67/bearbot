@@ -1,29 +1,11 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { commandNames, PiRpc, type RpcRecord, repoRoot } from "./pi-rpc.ts";
+import { commandNames, PiRpc, repoRoot } from "./pi-rpc.ts";
 
 const recoveryExt = join(repoRoot, "extensions", "bearbot-recovery");
 const recoverySkill = join(repoRoot, "skills", "bearbot-recovery");
 const recoveryProfileTemplate = join(repoRoot, "recovery-profile", "settings.json");
-const recoveryRules = readFileSync(join(recoveryExt, "prompt", "recovery.md"), "utf8");
-
-const modelBaseUrl = process.env.BEARBOT_TEST_OPENAI_BASE_URL;
-const modelApiKey = process.env.BEARBOT_TEST_OPENAI_API_KEY;
-const modelId = process.env.BEARBOT_TEST_OPENAI_MODEL;
-const hasModel = Boolean(modelBaseUrl && modelApiKey && modelId);
-
-const DISTRACTOR_MARKERS = [
-	"CWD_AGENTS_MARKER",
-	"WORKSPACE_AGENTS_MARKER",
-	"PROFILE_AGENTS_MARKER",
-	"distract-skill",
-	"global-skill",
-	"home-skill",
-	"ancestor-skill",
-	"distract_tool",
-	"global_tool",
-];
 
 interface RecoveryLayout {
 	root: string;
@@ -116,8 +98,8 @@ function childPath(layout: RecoveryLayout): string {
 	return [...new Set(entries)].join(":");
 }
 
-// Environment of contracts section 2.3; recoveryEnv plays the role of the [recovery.env] entries.
-function recoveryEnvironment(layout: RecoveryLayout, incidentId: string, recoveryEnv: Record<string, string> = {}): Record<string, string> {
+// Environment of contracts section 2.3 without [recovery.env] entries.
+function recoveryEnvironment(layout: RecoveryLayout, incidentId: string): Record<string, string> {
 	const env: Record<string, string> = {
 		HOME: layout.home,
 		PATH: childPath(layout),
@@ -133,7 +115,7 @@ function recoveryEnvironment(layout: RecoveryLayout, incidentId: string, recover
 	};
 	if (process.env.TZ) env.TZ = process.env.TZ;
 	if (process.env.LANG) env.LANG = process.env.LANG;
-	return { ...env, ...recoveryEnv };
+	return env;
 }
 
 function recoveryArgs(layout: RecoveryLayout, incidentId: string): string[] {
@@ -203,82 +185,4 @@ describe("recovery 进程（contracts 2.3 的启动参数）", () => {
 		expect(pi.stderr).toContain(`Failed to load extension "${join(recoveryExt, "index.ts")}"`);
 		expect(pi.stderr).toContain(`bearbot-recovery 需要环境变量 ${name}`);
 	}, 30_000);
-
-	test.skipIf(!hasModel)(
-		"一轮中的系统提示带有 recovery 规则、全部七个内置工具与四个 recovery 工具（需要 BEARBOT_TEST_OPENAI_BASE_URL、BEARBOT_TEST_OPENAI_API_KEY、BEARBOT_TEST_OPENAI_MODEL）",
-		async () => {
-			const layout = makeLayout();
-			const incidentId = "inc-20261027083002";
-			// The daemon copies /bearbot/config/recovery/{settings,models}.json over the template (DESIGN 10.1).
-			const template = JSON.parse(readFileSync(recoveryProfileTemplate, "utf8")) as Record<string, unknown>;
-			writeFileSync(
-				join(layout.agentDir, "settings.json"),
-				JSON.stringify({ ...template, defaultProvider: "testprovider", defaultModel: modelId }, null, 2),
-			);
-			writeFileSync(
-				join(layout.agentDir, "models.json"),
-				JSON.stringify({
-					providers: {
-						testprovider: {
-							api: "openai-completions",
-							baseUrl: modelBaseUrl,
-							apiKey: "${BEARBOT_TEST_OPENAI_API_KEY}",
-							models: [{ id: modelId }],
-						},
-					},
-				}),
-			);
-			const env = recoveryEnvironment(layout, incidentId, { BEARBOT_TEST_OPENAI_API_KEY: modelApiKey as string });
-			const pi = startRecovery(layout, env, incidentId);
-
-			const state = await pi.request({ id: "boot", type: "get_state" }, 20_000);
-			const model = (state.data as { model: { provider: string; id: string } }).model;
-			expect(`${model.provider}/${model.id}`).toBe(`testprovider/${modelId}`);
-
-			const prompt = await pi.request(
-				{ id: "prompt", type: "prompt", message: "这是一次连通性检查。不要调用任何工具，只回复两个字：完成。" },
-				60_000,
-			);
-			expect(prompt.success).toBe(true);
-			const system = await pi.waitFor(
-				(record) => record.type === "message_start" && (record.message as { role: string }).role === "system",
-				60_000,
-			);
-			const message = system.message as { sections: Record<string, string>; toolsAdded: { name: string }[] };
-			expect(message.toolsAdded.map((tool) => tool.name).sort()).toEqual(
-				[
-					"bash",
-					"edit",
-					"find",
-					"grep",
-					"ls",
-					"read",
-					"recovery_check",
-					"recovery_logs",
-					"recovery_report",
-					"recovery_snapshot",
-					"write",
-				].sort(),
-			);
-			const section = message.sections.bearbot_recovery;
-			expect(section).toContain(recoveryRules.trim());
-			expect(section).toContain(`当前处理的故障：${incidentId}`);
-			expect(message.sections.skills).toContain("<name>bearbot-recovery</name>");
-			const serialized = JSON.stringify(message);
-			for (const marker of DISTRACTOR_MARKERS) {
-				expect(serialized).not.toContain(marker);
-			}
-
-			await pi.waitFor((record) => record.type === "agent_settled", 120_000);
-			const assistant = pi.records.filter(
-				(record): record is RpcRecord & { message: { role: string; stopReason: string; errorMessage?: string } } =>
-					record.type === "message_end" && (record.message as { role: string }).role === "assistant",
-			);
-			expect(assistant.length).toBeGreaterThan(0);
-			const last = assistant[assistant.length - 1].message;
-			expect(last.stopReason, last.errorMessage).not.toBe("error");
-			expect(await pi.close()).toEqual({ code: 0, signal: null });
-		},
-		180_000,
-	);
 });

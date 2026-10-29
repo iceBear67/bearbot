@@ -349,14 +349,6 @@ bin/bearbotd --root /tmp/bbroot --rootless status     # 在另一个终端中执
 | `node_modules/.bin/vitest run extensions` | `bearbot-im` 与 recovery 扩展的测试 |
 | `cd daemon && go vet ./... && go test -count=1 -timeout 40m ./...` | Go 的单元测试与端到端测试；端到端测试约需 11 分钟，超过 `go test` 默认的 10 分钟上限，所以必须加 `-timeout` |
 
-需要外部服务的测试在缺少下面的环境变量时跳过：
-
-| 服务 | 环境变量 |
-|---|---|
-| 模型服务（OpenAI 兼容接口） | `BEARBOT_TEST_OPENAI_BASE_URL`、`BEARBOT_TEST_OPENAI_API_KEY`、`BEARBOT_TEST_OPENAI_MODEL` |
-| Telegram | `BEARBOT_TEST_TELEGRAM_BOT_TOKEN`、`BEARBOT_TEST_TELEGRAM_CHAT_ID` |
-| QQ | `BEARBOT_TEST_QQ_APP_ID`、`BEARBOT_TEST_QQ_CLIENT_SECRET` |
-
 ## 尚未实现
 
 - 企业微信适配器（计划放在 `packages/chat-adapter-wecom/`）。配置中 `[platforms.wecom] enabled = true` 时 daemon 拒绝启动。
