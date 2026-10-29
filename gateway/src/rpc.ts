@@ -274,6 +274,17 @@ export function optInt(p: Params, key: string, min: number): number | undefined 
   return reqInt(p, key, min);
 }
 
+export function optIntArray(p: Params, key: string, min: number): number[] {
+  const v = p[key];
+  if (v === undefined || v === null) {
+    return [];
+  }
+  if (!Array.isArray(v) || v.some((item) => typeof item !== "number" || !Number.isInteger(item) || item < min)) {
+    throw new RpcError(INVALID_PARAMS, `${key} must be an array of integers >= ${min}`);
+  }
+  return v as number[];
+}
+
 export function optBool(p: Params, key: string): boolean | undefined {
   const v = p[key];
   if (v === undefined || v === null) {

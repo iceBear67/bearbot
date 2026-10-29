@@ -74,6 +74,7 @@ func TestDefaults(t *testing.T) {
 		{"platforms.wecom.enabled", cfg.Platforms.WeCom.Enabled, false},
 		{"platforms.console.enabled", cfg.Platforms.Console.Enabled, true},
 		{"bridge.observe_limit", cfg.Bridge.ObserveLimit, 30},
+		{"bridge.queued_summary_after", cfg.Bridge.QueuedSummaryAfter, 10},
 		{"bridge.hold_warn_after", cfg.Bridge.HoldWarnAfter, 10 * time.Minute},
 		{"bridge.error_notice", cfg.Bridge.ErrorNotice, "处理时出现错误，已通知管理员。"},
 		{"classifier.enabled", cfg.Classifier.Enabled, true},
@@ -162,6 +163,7 @@ enabled = false
 
 [bridge]
 observe_limit = 10
+queued_summary_after = 4
 hold_warn_after = "1d2h"
 error_notice = "出错了"
 
@@ -203,7 +205,7 @@ hook_timeout = "30s"
 	if cfg.Platforms.Console.Enabled {
 		t.Errorf("console enabled")
 	}
-	if cfg.Bridge.ObserveLimit != 10 || cfg.Bridge.HoldWarnAfter != 26*time.Hour || cfg.Bridge.ErrorNotice != "出错了" {
+	if cfg.Bridge.ObserveLimit != 10 || cfg.Bridge.QueuedSummaryAfter != 4 || cfg.Bridge.HoldWarnAfter != 26*time.Hour || cfg.Bridge.ErrorNotice != "出错了" {
 		t.Errorf("bridge = %+v", cfg.Bridge)
 	}
 	if cfg.Classifier.Enabled || cfg.Classifier.RulesMaxBytes != 100 {
@@ -303,6 +305,7 @@ func TestErrors(t *testing.T) {
 		{"empty hook", minimal + "[maintenance]\non_enter = [\"\"]\n", []string{"on_enter[0]"}},
 		{"empty notice", minimal + "[gateway]\nmaintenance_notice = \" \"\n", []string{"maintenance_notice"}},
 		{"rules max bytes", minimal + "[classifier]\nrules_max_bytes = 0\n", []string{"rules_max_bytes"}},
+		{"queued summary after", minimal + "[bridge]\nqueued_summary_after = 0\n", []string{"[bridge] queued_summary_after"}},
 		{"listen without port", minimal + "[gateway.http]\nlisten = \"localhost\"\n", []string{"[gateway.http] listen", "localhost", "host:port"}},
 		{"listen port too large", minimal + "[gateway.http]\nlisten = \"0.0.0.0:99999\"\n", []string{"[gateway.http] listen", "1～65535"}},
 		{"listen port zero", minimal + "[gateway.http]\nlisten = \":0\"\n", []string{"[gateway.http] listen"}},

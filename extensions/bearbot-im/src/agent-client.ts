@@ -175,11 +175,6 @@ export class AgentClient {
     return this.request<ClassifierTurnStart>("POST", "/v1/classifier/turn", { phase: "start", turnId, senders });
   }
 
-  /** The full list of the turn's senders after a steered message added one (DESIGN 7.10 恢复记录). */
-  async classifierTurnSenders(turnId: string, senders: string[]): Promise<void> {
-    await this.request<unknown>("POST", "/v1/classifier/turn", { phase: "senders", turnId, senders });
-  }
-
   classifierTurnEnd(turnId: string): Promise<ClassifierTurnEnd> {
     return this.request<ClassifierTurnEnd>("POST", "/v1/classifier/turn", { phase: "end", turnId });
   }

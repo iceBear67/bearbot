@@ -337,9 +337,9 @@ export async function connectDaemon(env: Env, state = "running"): Promise<RpcPee
 }
 
 /** Connects as bearbot-im and sends hello. */
-export async function connectBridge(env: Env, ackedSeq?: number): Promise<{ peer: RpcPeer; hello: any }> {
+export async function connectBridge(env: Env, ackedSeq?: number, done?: number[]): Promise<{ peer: RpcPeer; hello: any }> {
   const peer = await RpcPeer.connect(env.gatewaySocket);
-  const hello = await peer.request("hello", ackedSeq === undefined ? {} : { ackedSeq });
+  const hello = await peer.request("hello", { ...(ackedSeq === undefined ? {} : { ackedSeq }), ...(done === undefined ? {} : { done }) });
   return { peer, hello };
 }
 

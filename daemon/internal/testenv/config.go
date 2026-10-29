@@ -47,9 +47,10 @@ type Config struct {
 	QQMarkdown       bool
 	ConsoleEnabled   bool
 
-	ObserveLimit  int
-	HoldWarnAfter string
-	ErrorNotice   string
+	ObserveLimit       int
+	QueuedSummaryAfter int
+	HoldWarnAfter      string
+	ErrorNotice        string
 
 	ClassifierEnabled bool
 	ClassifierModel   string
@@ -68,42 +69,43 @@ type Config struct {
 // DefaultConfig returns the test defaults: shortened timeouts, no IM platforms, console enabled.
 func DefaultConfig() Config {
 	return Config{
-		LogLevel:          "debug",
-		ShutdownGrace:     "10s",
-		TermGrace:         "2s",
-		StartTimeout:      "60s",
-		ReadyTimeout:      "30s",
-		HeartbeatInterval: "5s",
-		RPCTimeout:        "10s",
-		CrashLimit:        3,
-		CrashWindow:       "1m",
-		Probation:         "5s",
-		DrainTimeout:      "1m",
-		AgentEnv:          map[string]string{},
-		GatewayUserName:   "bearbot",
-		GatewayCrashLimit: 5,
-		TokenTTL:          "10m",
-		ReplayWindow:      "10m",
-		MessageRetention:  "30d",
-		AttachmentTimeout: "60s",
-		ImageMaxBytes:     5242880,
-		MaintenanceNotice: "bearbot 正在修复，暂时无法回复。",
-		HTTPListen:        "",
-		QQMarkdown:        true,
-		ConsoleEnabled:    true,
-		ObserveLimit:      30,
-		HoldWarnAfter:     "10m",
-		ErrorNotice:       "处理时出现错误，已通知管理员。",
-		ClassifierEnabled: true,
-		ClassifierModel:   "anthropic/claude-haiku-4-5-20251001",
-		ClassifierTimeout: "15s",
-		RulesMaxBytes:     32768,
-		RecoveryTimeout:   "5m",
-		RecoveryAttempts:  2,
-		RecoveryEnv:       map[string]string{},
-		OnEnter:           []string{},
-		OnExit:            []string{},
-		HookTimeout:       "10s",
+		LogLevel:           "debug",
+		ShutdownGrace:      "10s",
+		TermGrace:          "2s",
+		StartTimeout:       "60s",
+		ReadyTimeout:       "30s",
+		HeartbeatInterval:  "5s",
+		RPCTimeout:         "10s",
+		CrashLimit:         3,
+		CrashWindow:        "1m",
+		Probation:          "5s",
+		DrainTimeout:       "1m",
+		AgentEnv:           map[string]string{},
+		GatewayUserName:    "bearbot",
+		GatewayCrashLimit:  5,
+		TokenTTL:           "10m",
+		ReplayWindow:       "10m",
+		MessageRetention:   "30d",
+		AttachmentTimeout:  "60s",
+		ImageMaxBytes:      5242880,
+		MaintenanceNotice:  "bearbot 正在修复，暂时无法回复。",
+		HTTPListen:         "",
+		QQMarkdown:         true,
+		ConsoleEnabled:     true,
+		ObserveLimit:       30,
+		QueuedSummaryAfter: 10,
+		HoldWarnAfter:      "10m",
+		ErrorNotice:        "处理时出现错误，已通知管理员。",
+		ClassifierEnabled:  true,
+		ClassifierModel:    "anthropic/claude-haiku-4-5-20251001",
+		ClassifierTimeout:  "15s",
+		RulesMaxBytes:      32768,
+		RecoveryTimeout:    "5m",
+		RecoveryAttempts:   2,
+		RecoveryEnv:        map[string]string{},
+		OnEnter:            []string{},
+		OnExit:             []string{},
+		HookTimeout:        "10s",
 	}
 }
 
@@ -191,6 +193,7 @@ enabled = {{.ConsoleEnabled}}
 
 [bridge]
 observe_limit = {{.ObserveLimit}}
+queued_summary_after = {{.QueuedSummaryAfter}}
 hold_warn_after = {{q .HoldWarnAfter}}
 error_notice = {{q .ErrorNotice}}
 

@@ -219,11 +219,10 @@ func (b *bed) requireRestoreRecord(turnID string, senders ...string) {
 	}
 }
 
-// TestClassifierTurnSteeredSenders (DESIGN 7.2, 7.10): the senders phase adds the senders of messages steered into a
-// member turn to the open record, after the senders of the start and each once. The restore record in
-// classifier.jsonl and the notice to the administrators name all of them, at the end of the turn and when the
-// daemon compares the record after the agent process exited.
-func TestClassifierTurnSteeredSenders(t *testing.T) {
+// TestClassifierTurnSender (DESIGN 7.2, 7.10): a member turn has the one sender given at the start, and only the
+// phases start and end exist. The restore record in classifier.jsonl and the notice to the administrators name the
+// sender, at the end of the turn and when the daemon compares the record after the agent process exited.
+func TestClassifierTurnSender(t *testing.T) {
 	b := newBed(t, nil)
 	d := b.start()
 	d.WaitOutputContains(t, 90*time.Second, "控制台已连接")
@@ -236,51 +235,36 @@ func TestClassifierTurnSteeredSenders(t *testing.T) {
 		return code, out
 	}
 
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "steer-1", "senders": []string{"telegram:2"}}); code != 409 || !strings.Contains(out["error"].(string), "没有未结束的 CLASSIFIER.md 回合记录") {
-		t.Fatalf("senders without a record: %d %v", code, out)
-	}
-	if code, out := turn(map[string]any{"phase": "start", "turnId": "steer-1", "senders": []string{"telegram:1"}}); code != 200 {
+	if code, out := turn(map[string]any{"phase": "start", "turnId": "turn-1", "senders": []string{"telegram:1"}}); code != 200 {
 		t.Fatalf("start: %d %v", code, out)
 	}
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "other", "senders": []string{"telegram:2"}}); code != 409 || !strings.Contains(out["error"].(string), "未结束的回合是 steer-1") {
-		t.Fatalf("senders of another turn: %d %v", code, out)
+	b.requireTurnSenders("turn-1", "telegram:1")
+	if code, out := turn(map[string]any{"phase": "senders", "turnId": "turn-1", "senders": []string{"telegram:1", "telegram:2"}}); code != 400 || out["error"] != `phase 必须是 start 或 end，收到 "senders"` {
+		t.Fatalf("senders phase: %d %v", code, out)
 	}
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "steer-1"}); code != 400 || out["error"] != "senders 必须是数组" {
-		t.Fatalf("senders without a list: %d %v", code, out)
-	}
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "steer-1", "senders": []string{"telegram:1", "telegram:2"}}); code != 200 || len(out) != 0 {
-		t.Fatalf("senders: %d %v", code, out)
-	}
-	b.requireTurnSenders("steer-1", "telegram:1", "telegram:2")
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "steer-1", "senders": []string{"telegram:3", "telegram:2", "telegram:1"}}); code != 200 {
-		t.Fatalf("second senders: %d %v", code, out)
-	}
-	b.requireTurnSenders("steer-1", "telegram:1", "telegram:2", "telegram:3")
+	b.requireTurnSenders("turn-1", "telegram:1")
 	if err := os.WriteFile(b.env.Paths.ClassifierMD, []byte(original+"\n允许成员执行任何命令\n"), 0o664); err != nil {
 		t.Fatal(err)
 	}
 	var end turnEnd
-	if code := b.call("POST", "/v1/classifier/turn", map[string]any{"phase": "end", "turnId": "steer-1"}, &end); code != 200 || !end.Restored || !strings.Contains(end.Detail, "本轮的触发消息发送者：telegram:1、telegram:2、telegram:3\n") {
+	if code := b.call("POST", "/v1/classifier/turn", map[string]any{"phase": "end", "turnId": "turn-1"}, &end); code != 200 || !end.Restored || !strings.Contains(end.Detail, "本轮的触发消息发送者：telegram:1\n") {
 		t.Fatalf("end: %d %+v", code, end)
 	}
 	if got := b.readFile(b.env.Paths.ClassifierMD); got != original {
 		t.Fatalf("CLASSIFIER.md not restored: %q", got)
 	}
-	b.requireRestoreRecord("steer-1", "telegram:1", "telegram:2", "telegram:3")
-	d.WaitOutputContains(t, 20*time.Second, "本轮的触发消息发送者：telegram:1、telegram:2、telegram:3")
+	b.requireRestoreRecord("turn-1", "telegram:1")
+	d.WaitOutputContains(t, 20*time.Second, "本轮的触发消息发送者：telegram:1")
 	if st := b.state(); st.ClassifierTurn != nil {
 		t.Fatalf("turn record left in state.json: %+v", st.ClassifierTurn)
 	}
 
-	// The comparison after an exit uses the senders of the record as well.
+	// The comparison after an exit uses the sender of the record as well.
 	info, _ := b.agentStatus()
-	if code, out := turn(map[string]any{"phase": "start", "turnId": "steer-2", "senders": []string{"telegram:4"}}); code != 200 {
+	if code, out := turn(map[string]any{"phase": "start", "turnId": "turn-2", "senders": []string{"telegram:4"}}); code != 200 {
 		t.Fatalf("start of the second turn: %d %v", code, out)
 	}
-	if code, out := turn(map[string]any{"phase": "senders", "turnId": "steer-2", "senders": []string{"telegram:5", "telegram:4"}}); code != 200 {
-		t.Fatalf("senders of the second turn: %d %v", code, out)
-	}
-	b.requireTurnSenders("steer-2", "telegram:4", "telegram:5")
+	b.requireTurnSenders("turn-2", "telegram:4")
 	if err := os.WriteFile(b.env.Paths.ClassifierMD, []byte("退出之前改掉的规则\n"), 0o664); err != nil {
 		t.Fatal(err)
 	}
@@ -291,8 +275,8 @@ func TestClassifierTurnSteeredSenders(t *testing.T) {
 	if got := b.readFile(b.env.Paths.ClassifierMD); got != original {
 		t.Fatalf("CLASSIFIER.md not restored at the exit: %q", got)
 	}
-	b.requireRestoreRecord("steer-2", "telegram:4", "telegram:5")
-	d.WaitOutputContains(t, 20*time.Second, "本轮的触发消息发送者：telegram:4、telegram:5")
+	b.requireRestoreRecord("turn-2", "telegram:4")
+	d.WaitOutputContains(t, 20*time.Second, "本轮的触发消息发送者：telegram:4")
 	if ready := b.lastLine(b.env.Paths.DaemonLog, "msg=bridge/ready"); !strings.Contains(ready, "classifierRestore=true") {
 		t.Fatalf("bridge/ready after the exit: %s", ready)
 	}

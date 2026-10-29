@@ -112,9 +112,10 @@ type Console struct {
 
 // Bridge is the [bridge] section.
 type Bridge struct {
-	ObserveLimit  int
-	HoldWarnAfter time.Duration
-	ErrorNotice   string
+	ObserveLimit       int
+	QueuedSummaryAfter int
+	HoldWarnAfter      time.Duration
+	ErrorNotice        string
 }
 
 // Classifier is the [classifier] section.
@@ -224,9 +225,10 @@ type rawConsole struct {
 }
 
 type rawBridge struct {
-	ObserveLimit  int    `toml:"observe_limit"`
-	HoldWarnAfter string `toml:"hold_warn_after"`
-	ErrorNotice   string `toml:"error_notice"`
+	ObserveLimit       int    `toml:"observe_limit"`
+	QueuedSummaryAfter int    `toml:"queued_summary_after"`
+	HoldWarnAfter      string `toml:"hold_warn_after"`
+	ErrorNotice        string `toml:"error_notice"`
 }
 
 type rawClassifier struct {
@@ -278,7 +280,7 @@ func defaults() rawConfig {
 			WeCom:    rawWeCom{Enabled: false, BotID: "${WECOM_BOT_ID}", Secret: "${WECOM_BOT_SECRET}"},
 			Console:  rawConsole{Enabled: true},
 		},
-		Bridge: rawBridge{ObserveLimit: 30, HoldWarnAfter: "10m", ErrorNotice: "处理时出现错误，已通知管理员。"},
+		Bridge: rawBridge{ObserveLimit: 30, QueuedSummaryAfter: 10, HoldWarnAfter: "10m", ErrorNotice: "处理时出现错误，已通知管理员。"},
 		Classifier: rawClassifier{
 			Enabled:       true,
 			Model:         "anthropic/claude-haiku-4-5-20251001",
@@ -611,11 +613,13 @@ func build(raw *rawConfig) (*Config, error) {
 	cfg.Platforms.WeCom.Secret = ""
 
 	atLeast("[bridge] observe_limit", int64(raw.Bridge.ObserveLimit), 0)
+	atLeast("[bridge] queued_summary_after", int64(raw.Bridge.QueuedSummaryAfter), 1)
 	nonEmpty("[bridge] error_notice", raw.Bridge.ErrorNotice)
 	cfg.Bridge = Bridge{
-		ObserveLimit:  raw.Bridge.ObserveLimit,
-		HoldWarnAfter: durMs("[bridge] hold_warn_after", raw.Bridge.HoldWarnAfter),
-		ErrorNotice:   raw.Bridge.ErrorNotice,
+		ObserveLimit:       raw.Bridge.ObserveLimit,
+		QueuedSummaryAfter: raw.Bridge.QueuedSummaryAfter,
+		HoldWarnAfter:      durMs("[bridge] hold_warn_after", raw.Bridge.HoldWarnAfter),
+		ErrorNotice:        raw.Bridge.ErrorNotice,
 	}
 
 	provider, modelID, ok := strings.Cut(raw.Classifier.Model, "/")

@@ -28,6 +28,8 @@ let db: Db;
 let log: MessageLog;
 let outbound: Outbound;
 let platforms: Platforms;
+let repo: Repo;
+let tokens: Tokens;
 let bot: Chat;
 let frame = 1;
 
@@ -62,8 +64,8 @@ beforeAll(async () => {
   db = openDb(cfg.database);
   log = new MessageLog(db);
   platforms = new Platforms(cfg, logger, chatLogger);
-  const repo = new Repo(db, { consoleEnabled: false, classifierEnabledDefault: true, platforms: platforms.names() });
-  const tokens = new Tokens(db);
+  repo = new Repo(db, { consoleEnabled: false, classifierEnabledDefault: true, platforms: platforms.names() });
+  tokens = new Tokens(db);
   const agentState = new AgentState(repo);
   agentState.update("running", null);
   outbound = new Outbound(platforms, log, repo, logger, cfg.workspaceDir);
@@ -107,7 +109,8 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-type GroupMessage = { id: string; member: string; content: string; ext: string[]; quoted?: { msgIdx: string; content: string } };
+/** `member` null: the author carries no openid. */
+type GroupMessage = { id: string; member: string | null; content: string; ext: string[]; quoted?: { msgIdx: string; content: string } };
 
 /** Feeds one GROUP_MESSAGE_CREATE frame as QQ sends it and waits for the handlers. */
 async function feed(m: GroupMessage): Promise<InboundRow> {
@@ -116,7 +119,7 @@ async function feed(m: GroupMessage): Promise<InboundRow> {
     content: m.content,
     timestamp: new Date().toISOString(),
     group_openid: GROUP.slice("qq:group/".length),
-    author: { member_openid: m.member },
+    author: m.member === null ? {} : { member_openid: m.member },
     message_scene: { source: "default", ext: m.ext },
     message_type: m.quoted ? 103 : 0,
   };
@@ -175,6 +178,18 @@ test("QQ messages keep their quote index; a quote names the quoted message and i
   // QQ does not give every message a quote index.
   const plain = await feed({ id: "ROBOT1.0_erin", member: "M_ERIN", content: "没有索引", ext: [] });
   expect(plain.quoteId).toBeNull();
+});
+
+test("a QQ message without an openid is not processed, so no sender gets the shared identity qq:unknown", async () => {
+  await feed({ id: "ROBOT1.0_anon", member: null, content: "没有发送者", ext: ["msg_idx=REFIDX_anon"] });
+  const { token } = tokens.create(600000);
+  await feed({ id: "ROBOT1.0_anon_token", member: null, content: token, ext: [] });
+  const ids = log.inboundAfter(0, 1000).map((row) => row.messageId);
+  expect(ids).not.toContain("ROBOT1.0_anon");
+  expect(repo.isAdmin("qq:unknown")).toBe(false);
+  // The token was not consumed: a sender with an openid can still claim it.
+  await feed({ id: "ROBOT1.0_frank_token", member: "M_FRANK", content: token, ext: [] });
+  expect(repo.isAdmin("qq:M_FRANK")).toBe(true);
 });
 
 test("a QQ slash command keeps its quote index", async () => {

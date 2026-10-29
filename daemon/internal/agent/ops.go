@@ -515,37 +515,6 @@ func (s *Supervisor) ClassifierTurnStart(turnID string, senders []string) (*clas
 	return res, nil
 }
 
-// ClassifierTurnSenders adds the senders of messages steered into the open member turn turnID to its record and to
-// state.json (DESIGN 7.2, 7.10): the end comparison and the comparison after an exit name every sender of the turn.
-// senders is the turn's full list; the recorded senders stay first.
-func (s *Supervisor) ClassifierTurnSenders(turnID string, senders []string) error {
-	if turnID == "" {
-		return userErr("turnId 不能为空")
-	}
-	if senders == nil {
-		return userErr("senders 必须是数组")
-	}
-	s.classifierMu.Lock()
-	defer s.classifierMu.Unlock()
-	pending, err := s.recorder.Pending()
-	if err != nil {
-		return err
-	}
-	if pending == nil {
-		return &ConflictError{fmt.Sprintf("没有未结束的 CLASSIFIER.md 回合记录，不能为回合 %s 记录发送者", turnID)}
-	}
-	if pending.TurnID != turnID {
-		return &ConflictError{fmt.Sprintf("未结束的回合是 %s，不是 %s", pending.TurnID, turnID)}
-	}
-	rec, err := s.recorder.AddSenders(turnID, senders)
-	if err != nil {
-		return err
-	}
-	return s.update(func(x *state.State) {
-		x.ClassifierTurn = &state.ClassifierTurn{TurnID: rec.TurnID, StartedAt: rec.StartedAt, Senders: slices.Clone(rec.Senders)}
-	})
-}
-
 // TurnEndResult is the answer of the end phase.
 type TurnEndResult struct {
 	Restored bool   `json:"restored"`

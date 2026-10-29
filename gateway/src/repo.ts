@@ -1,6 +1,6 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "./db/index.ts";
-import { admin, binding, bridgeCursor, classifierRule, classifierSetting, maintenanceNotice } from "./db/schema.ts";
+import { admin, binding, bridgeCursor, bridgeDone, classifierRule, classifierSetting, maintenanceNotice } from "./db/schema.ts";
 import { isoLocal } from "./time.ts";
 import type { AdminInfo, ClassifierInfo, Interrupt, ReplyMode, Trigger, WireBinding } from "./types.ts";
 
@@ -277,14 +277,28 @@ export class Repo {
     return this.db.select().from(bridgeCursor).where(eq(bridgeCursor.id, 1)).get()?.ackedSeq ?? 0;
   }
 
-  /** bridge_cursor = max(current, seq). Returns the new value. */
-  ack(seq: number): number {
-    const next = Math.max(this.ackedSeq(), seq);
-    this.db
-      .insert(bridgeCursor)
-      .values({ id: 1, ackedSeq: next })
-      .onConflictDoUpdate({ target: bridgeCursor.id, set: { ackedSeq: next } })
-      .run();
-    return next;
+  /**
+   * bridge_cursor = max(current, seq); the completed seqs in `done` above it go to bridge_done, and bridge_done rows
+   * the cursor has passed are deleted, in one transaction (DESIGN 6.8). Returns the new cursor.
+   */
+  ack(seq: number, done: readonly number[]): number {
+    return this.db.transaction((tx) => {
+      const next = Math.max(tx.select().from(bridgeCursor).where(eq(bridgeCursor.id, 1)).get()?.ackedSeq ?? 0, seq);
+      tx.insert(bridgeCursor)
+        .values({ id: 1, ackedSeq: next })
+        .onConflictDoUpdate({ target: bridgeCursor.id, set: { ackedSeq: next } })
+        .run();
+      const above = done.filter((value) => value > next);
+      if (above.length > 0) {
+        tx.insert(bridgeDone).values(above.map((value) => ({ seq: value }))).onConflictDoNothing().run();
+      }
+      tx.delete(bridgeDone).where(lte(bridgeDone.seq, next)).run();
+      return next;
+    });
+  }
+
+  /** Seqs in bridge_done, ascending. */
+  doneSeqs(): number[] {
+    return this.db.select().from(bridgeDone).orderBy(asc(bridgeDone.seq)).all().map((row) => row.seq);
   }
 }

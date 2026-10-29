@@ -54,6 +54,7 @@ enabled = true                  # 标准输入是终端或管道时启用控制�
 
 [bridge]
 observe_limit = 30              # 每个会话串保留的旁观消息条数
+queued_summary_after = 10       # 同一会话串中其他人排队中的消息超过这个条数时，由模型压缩为摘要再交给本轮
 hold_warn_after = "10m"         # 消息被中间件扣留超过这个时长时产生诊断
 error_notice = "处理时出现错误，已通知管理员。"   # member 回合出错时回复给用户的文字
 

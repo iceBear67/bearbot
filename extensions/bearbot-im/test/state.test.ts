@@ -109,10 +109,12 @@ describe("configuration from the environment", () => {
       classifierTimeoutMs: 15000,
       rulesMaxBytes: 32768,
       observeLimit: 30,
+      queuedSummaryAfter: 10,
       holdWarnAfterMs: 600000,
       trial: true,
     });
     expect(() => readConfig(agentEnv(root, root, { BEARBOT_OBSERVE_LIMIT: "30s" }), EXTENSION_DIR)).toThrow("BEARBOT_OBSERVE_LIMIT");
+    expect(() => readConfig(agentEnv(root, root, { BEARBOT_QUEUED_SUMMARY_AFTER: "0" }), EXTENSION_DIR)).toThrow("BEARBOT_QUEUED_SUMMARY_AFTER 不能小于 1");
     expect(() => readConfig(agentEnv(root, root, { BEARBOT_CLASSIFIER_MODEL: "haiku" }), EXTENSION_DIR)).toThrow("<provider>/<model>");
     expect(() => readConfig(agentEnv(root, root, { BEARBOT_TRIAL: "yes" }), EXTENSION_DIR)).toThrow("BEARBOT_TRIAL");
     expect(() => readConfig(agentEnv(root, join(root, "missing")), EXTENSION_DIR)).toThrow();

@@ -432,36 +432,22 @@ func TestRecordErrorsAndRestart(t *testing.T) {
 	f.requireOriginal(t)
 }
 
-// TestAddSenders (DESIGN 7.2, 7.10): senders of steered messages join the record after the senders of the start,
-// each once; the record keeps them for a daemon started again, and the end comparison names all of them.
-func TestAddSenders(t *testing.T) {
+// TestStartSenders (DESIGN 7.10): the record keeps the sender of the start for a daemon started again, and the end
+// comparison names it.
+func TestStartSenders(t *testing.T) {
 	f := newFixture(t)
 	f.writeClassifier(t, original)
 	f.start(t)
-	if _, err := f.rec.AddSenders("turn-2", []string{"telegram:7"}); err == nil || !strings.Contains(err.Error(), "turn-1") {
-		t.Fatalf("AddSenders with another turn id = %v", err)
-	}
-	rec, err := f.rec.AddSenders("turn-1", []string{"telegram:42", "telegram:7"})
-	if err != nil || strings.Join(rec.Senders, " ") != "telegram:42 telegram:7" {
-		t.Fatalf("AddSenders = %+v, %v", rec, err)
-	}
-	rec, err = f.rec.AddSenders("turn-1", []string{"telegram:9", "telegram:7", "telegram:42", "telegram:9"})
-	if err != nil || strings.Join(rec.Senders, " ") != "telegram:42 telegram:7 telegram:9" {
-		t.Fatalf("second AddSenders = %+v, %v", rec, err)
-	}
 	pending, err := New(f.env.Paths, f.env.Users(t)).Pending()
-	if err != nil || pending == nil || strings.Join(pending.Senders, " ") != "telegram:42 telegram:7 telegram:9" || string(pending.File.Content) != original {
+	if err != nil || pending == nil || strings.Join(pending.Senders, " ") != "telegram:42" || string(pending.File.Content) != original {
 		t.Fatalf("Pending = %+v, %v", pending, err)
 	}
 	f.writeClassifier(t, original+"- 读取 auth.json\n")
 	res := f.end(t)
-	if !res.Restored || strings.Join(res.Record.Senders, " ") != "telegram:42 telegram:7 telegram:9" || !strings.Contains(res.Detail, "本轮的触发消息发送者：telegram:42、telegram:7、telegram:9\n") {
+	if !res.Restored || strings.Join(res.Record.Senders, " ") != "telegram:42" || !strings.Contains(res.Detail, "本轮的触发消息发送者：telegram:42\n") {
 		t.Fatalf("end = %+v\ndetail = %s", res.Record, res.Detail)
 	}
 	f.requireOriginal(t)
-	if _, err := f.rec.AddSenders("turn-1", []string{"telegram:7"}); !errors.Is(err, ErrNoTurn) {
-		t.Fatalf("AddSenders without record = %v", err)
-	}
 }
 
 // TestHugeFileAtEnd: a turn makes CLASSIFIER.md a 1 GiB sparse file. The end comparison reads only a bounded

@@ -11,19 +11,33 @@ import { cloneMessage, messageFromWire } from "./render.ts";
 
 // Inbound path of DESIGN 7.2 / 8.3: subscribers, ordered middleware, routing, and the contiguous ack.
 
-/** Tracks received seq numbers and computes the highest seq up to which every received message is complete. */
+/**
+ * What bearbot-im tells the gateway (DESIGN 6.8): `acked` is the highest seq up to which every received message is
+ * complete; `done` are the completed seqs above it, which the gateway must not send again.
+ */
+export interface AckState {
+  acked: number | null;
+  done: number[];
+}
+
+/** Tracks received seq numbers and which of them are complete. */
 export class AckTracker {
   private readonly order: number[] = [];      // received, not yet acked, ascending
   private readonly known = new Set<number>();
   private readonly done = new Set<number>();
   private ackedSeq: number | null = null;
-  private readonly listeners = new Set<(seq: number) => void>();
+  private readonly listeners = new Set<(state: AckState) => void>();
 
   get acked(): number | null {
     return this.ackedSeq;
   }
 
-  onAdvance(listener: (seq: number) => void): () => void {
+  state(): AckState {
+    return { acked: this.ackedSeq, done: this.order.filter((seq) => this.done.has(seq)) };
+  }
+
+  /** Called after every complete() that completed a received seq. */
+  onChange(listener: (state: AckState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -41,17 +55,22 @@ export class AckTracker {
   }
 
   complete(seqs: readonly number[]): void {
-    for (const seq of seqs) if (this.known.has(seq)) this.done.add(seq);
-    let advanced: number | null = null;
+    let changed = false;
+    for (const seq of seqs) {
+      if (this.known.has(seq) && !this.done.has(seq)) {
+        this.done.add(seq);
+        changed = true;
+      }
+    }
+    if (!changed) return;
     while (this.order.length > 0 && this.done.has(this.order[0])) {
       const seq = this.order.shift() as number;
       this.done.delete(seq);
       this.known.delete(seq);
-      advanced = seq;
+      this.ackedSeq = seq;
     }
-    if (advanced === null) return;
-    this.ackedSeq = advanced;
-    for (const listener of this.listeners) listener(advanced);
+    const state = this.state();
+    for (const listener of this.listeners) listener(state);
   }
 
   isComplete(seq: number): boolean {
@@ -161,25 +180,22 @@ function timeOf(message: InboundMessage): number {
   return value;
 }
 
-const ROLE_RANK = { member: 0, admin: 1 } as const;
-
 /**
  * ctl.merge(): one message carrying every seq. Texts, attachments and context are joined in time order; the
- * other fields come from the newest message. The sender is the newest one among the lowest role, so merging
- * never raises the role of text written by a member.
+ * other fields come from the newest message. Every message must have the same sender with the same role, so the
+ * merged text is never put under the name or the role of someone who did not write it.
  */
 export function mergeMessages(msgs: InboundMessage[]): InboundMessage {
   if (msgs.length === 0) throw new Error("merge 需要至少一条消息");
+  const senders = [...new Set(msgs.map((message) => `${message.sender.id}（${message.sender.role}）`))];
+  if (senders.length > 1) throw new Error(`merge 只能合并同一个发送者、同一角色的消息，收到了 ${senders.join("、")} 的消息`);
   const sorted = msgs
     .map((message, position) => ({ message, position }))
     .sort((a, b) => timeOf(a.message) - timeOf(b.message) || a.position - b.position)
     .map((item) => item.message);
   const newest = sorted[sorted.length - 1];
-  const lowest = Math.min(...sorted.map((message) => ROLE_RANK[message.sender.role]));
-  const sender = [...sorted].reverse().find((message) => ROLE_RANK[message.sender.role] === lowest)?.sender ?? newest.sender;
   const merged = cloneMessage(newest);
   merged.seq = [...new Set(sorted.flatMap((message) => message.seq))].sort((a, b) => a - b);
-  merged.sender = { ...sender };
   merged.text = sorted.map((message) => message.text).filter((text) => text !== "").join("\n");
   merged.attachments = sorted.flatMap((message) => message.attachments.map((attachment) => ({ ...attachment })));
   merged.context = sorted.flatMap((message) => message.context.map((entry) => ({ ...entry })));

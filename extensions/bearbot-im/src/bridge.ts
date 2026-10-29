@@ -32,7 +32,7 @@ import { type DiagnosticRecord, Diagnostics, diagnosticsFile, formatAdminNotice,
 import { Dispatcher, type SystemTurnSpec, type TurnEndListener, type TurnStartListener, TurnQueue } from "./dispatch.ts";
 import { type ClassifierSettings, GatewayClient, type HelloResult, type PostParams, type WireBinding, type WireMessage } from "./gateway-client.ts";
 import { Memory, shouldSteerMemory } from "./memory.ts";
-import { AckTracker, InboundPipeline, type Owner, OutboundPipeline, Registry, type Subscriber } from "./pipeline.ts";
+import { AckTracker, type AckState, InboundPipeline, type Owner, OutboundPipeline, Registry, type Subscriber } from "./pipeline.ts";
 import { messageFromWire } from "./render.ts";
 import { RollbackState, rollbackReminder, rollbackTurnBody } from "./rollback.ts";
 import type { ToolsHost } from "./tools.ts";
@@ -49,6 +49,7 @@ export interface BridgeConfig {
   classifierTimeoutMs: number;
   rulesMaxBytes: number;
   observeLimit: number;
+  queuedSummaryAfter: number;
   holdWarnAfterMs: number;
   errorNotice: string;
   trial: boolean;
@@ -84,6 +85,7 @@ export function readConfig(env: NodeJS.ProcessEnv, extensionDir: string): Bridge
     classifierTimeoutMs: integer(env, "BEARBOT_CLASSIFIER_TIMEOUT", 1),
     rulesMaxBytes: integer(env, "BEARBOT_CLASSIFIER_RULES_MAX_BYTES", 0),
     observeLimit: integer(env, "BEARBOT_OBSERVE_LIMIT", 0),
+    queuedSummaryAfter: integer(env, "BEARBOT_QUEUED_SUMMARY_AFTER", 1),
     holdWarnAfterMs: integer(env, "BEARBOT_HOLD_WARN_AFTER", 1),
     errorNotice: required(env, "BEARBOT_ERROR_NOTICE"),
     trial: parseTrialFlag(env.BEARBOT_TRIAL),
@@ -160,7 +162,6 @@ export class Bridge {
   private self: Record<string, string> = {};
   private lastIncident: IncidentNotice | null = null;
   private lastProblem: string | null = null;
-  private confirmedAck: number | null = null;
   private readonly bearbotTemplate: string;
   private readonly promptVars: Record<string, string>;
 
@@ -168,7 +169,7 @@ export class Bridge {
     this.config = config;
     this.diagnostics = new Diagnostics(config.trial ? null : diagnosticsFile(config.workspaceDir));
     this.memory = new Memory(config.workspaceReal);
-    this.gateway = new GatewayClient(config.gatewaySocket, () => this.ack.acked);
+    this.gateway = new GatewayClient(config.gatewaySocket, () => this.ack.state());
     this.agent = new AgentClient(config.agentSocket);
     const skillsDir = resolve(config.extensionDir, "..", "..", "skills");
     this.skillPaths = [join(skillsDir, "bearbot-extension-dev"), join(skillsDir, "bearbot-middleware")];
@@ -214,6 +215,8 @@ export class Bridge {
       turnEndListeners: this.turnEndListeners,
       errorNotice: config.errorNotice,
       rulesMaxBytes: config.rulesMaxBytes,
+      queuedSummaryAfter: config.queuedSummaryAfter,
+      queuedSummaryPrompt: readFileSync(join(config.extensionDir, "prompt", "queued-summary.md"), "utf8"),
     });
     this.pipeline = new InboundPipeline({
       subscribers: this.subscribers,
@@ -349,7 +352,7 @@ export class Bridge {
 
   private startConnections(): void {
     this.diagnostics.setNotifier((record) => this.notifyAdmins(record));
-    this.ack.onAdvance((seq) => this.sendAck(seq));
+    this.ack.onChange((state) => this.sendAck(state));
     this.gateway.on("hello", (result, reconnect) => this.onHello(result, reconnect));
     this.gateway.on("message", (wire: WireMessage) => this.pipeline.receive(wire));
     this.gateway.on("bindings", (bindings) => this.setBindings(bindings));
@@ -389,22 +392,18 @@ export class Bridge {
       return;
     }
     this.dispatcher.renotify();
-    const acked = this.ack.acked;
-    if (acked !== null && (this.confirmedAck === null || acked > this.confirmedAck)) this.sendAck(acked);
+    // Completions between the connect (whose hello carried the state of that moment) and the hello answer.
+    const state = this.ack.state();
+    if (state.acked !== null || state.done.length > 0) this.sendAck(state);
   }
 
-  private sendAck(seq: number): void {
+  private sendAck(state: AckState): void {
     if (!this.gateway.connected) return;
-    this.gateway.request("ack", { seq }).then(
-      () => {
-        if (this.confirmedAck === null || seq > this.confirmedAck) this.confirmedAck = seq;
-      },
-      (error: Error) => {
-        // A lost connection needs nothing here: the next hello carries ackedSeq.
-        if (!this.gateway.connected) return;
-        this.diagnostics.add({ source: "gateway", level: "warning", message: `ack ${seq} 失败`, detail: error.message });
-      },
-    );
+    this.gateway.request("ack", { seq: state.acked ?? 0, done: state.done }).then(undefined, (error: Error) => {
+      // A lost connection needs nothing here: the next hello carries the state.
+      if (!this.gateway.connected) return;
+      this.diagnostics.add({ source: "gateway", level: "warning", message: `ack ${state.acked ?? 0} 失败`, detail: error.message });
+    });
   }
 
   private setBindings(bindings: WireBinding[]): void {

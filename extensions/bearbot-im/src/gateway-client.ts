@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { createConnection, type Socket } from "node:net";
+import type { AckState } from "./pipeline.ts";
 
 // gateway.sock protocol types (contracts section 5).
 
@@ -130,7 +131,7 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
 
   constructor(
     private readonly socketPath: string,
-    private readonly ackedSeq: () => number | null,
+    private readonly ackState: () => AckState,
   ) {
     super();
   }
@@ -204,8 +205,8 @@ export class GatewayClient extends EventEmitter<GatewayClientEvents> implements 
     this.buffer = "";
     socket.setEncoding("utf8");
     socket.on("connect", () => {
-      const acked = this.ackedSeq();
-      const params = acked === null ? {} : { ackedSeq: acked };
+      const { acked, done } = this.ackState();
+      const params = acked === null ? { done } : { ackedSeq: acked, done };
       this.send<HelloResult>("hello", params, socket).then(
         (result) => {
           if (this.socket !== socket) return;

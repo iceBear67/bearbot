@@ -45,7 +45,7 @@ export type Next = (msg: InboundMessage) => void;
 
 export interface MiddlewareControl {
   drop(msg: InboundMessage, reason: string): void;      // drop, later middleware do not see it
-  merge(msgs: InboundMessage[]): InboundMessage;         // one message: seq union, texts joined in time order, attachments joined
+  merge(msgs: InboundMessage[]): InboundMessage;         // one message from messages of one sender with one role:seq union, texts joined in time order, attachments joined
   reply(msg: InboundMessage, text: string): Promise<void>; // reply directly without the model
 }
 
@@ -66,7 +66,7 @@ export type OutboundMiddleware =
 export interface TurnInfo {
   origin: string;
   role: Role;
-  senders: Sender[];
+  senders: Sender[];          // exactly one for a turn of chat messages, none for prompt() and system turns
   messages: InboundMessage[];
 }
 

@@ -18,11 +18,13 @@ import {
   assistantText,
   collectImages,
   localIso,
+  refDateOf,
   renderMessageTurn,
   renderPromptTurn,
   renderSystemTurn,
   userContent,
 } from "./render.ts";
+import { QUEUED_SUMMARY_TIMEOUT_MS, summarizeQueued } from "./queued.ts";
 import { rollbackAckAllowed, type RollbackState } from "./rollback.ts";
 
 // Dispatch queue and turn lifecycle (DESIGN 7.2).
@@ -43,7 +45,15 @@ type QueueEntry =
   | { kind: "system"; spec: SystemTurnSpec };
 
 type Batch =
-  | { kind: "message"; thread: string; messages: InboundMessage[]; observed: InboundMessage[]; entries: QueueEntry[] }
+  | {
+    kind: "message";
+    thread: string;
+    messages: InboundMessage[];
+    observed: InboundMessage[];
+    /** Queued trigger messages of other senders in the thread; they stay queued and are shown as observed. */
+    queued: InboundMessage[];
+    entries: QueueEntry[];
+  }
   | { kind: "prompt"; entry: Extract<QueueEntry, { kind: "prompt" }> }
   | { kind: "system"; entry: Extract<QueueEntry, { kind: "system" }> };
 
@@ -88,7 +98,11 @@ export class TurnQueue implements RouteTarget {
     }
   }
 
-  /** The next turn: the earliest entry decides; for a chat message every queued message of its thread joins. */
+  /**
+   * The next turn: the earliest entry decides; for a chat message every queued message of its thread from the same
+   * sender with the same role joins, so a turn has one sender. The role is compared as well: a sender whose admin
+   * status changed between two messages has them in separate turns, so member text never runs in an admin turn.
+   */
   takeNext(): Batch | null {
     const first = this.entries[0];
     if (!first) return null;
@@ -101,16 +115,22 @@ export class TurnQueue implements RouteTarget {
       return { kind: "system", entry: first };
     }
     const thread = first.msg.thread;
+    const sender = first.msg.sender;
     const taken: QueueEntry[] = [];
+    const queued: InboundMessage[] = [];
     this.entries = this.entries.filter((entry) => {
-      if (entry.kind === "message" && entry.msg.thread === thread) {
-        taken.push(entry);
-        return false;
+      if (entry.kind !== "message" || entry.msg.thread !== thread) return true;
+      if (entry.msg.sender.id !== sender.id) {
+        queued.push(entry.msg);
+        return true;
       }
-      return true;
+      // The same person with the other role: a turn of its own later, not shown as someone else's queued message.
+      if (entry.msg.sender.role !== sender.role) return true;
+      taken.push(entry);
+      return false;
     });
     const messages = taken.map((entry) => (entry as Extract<QueueEntry, { kind: "message" }>).msg);
-    return { kind: "message", thread, messages, observed: this.takeObserved(thread), entries: taken };
+    return { kind: "message", thread, messages, observed: this.takeObserved(thread), queued, entries: taken };
   }
 
   takeObserved(thread: string): InboundMessage[] {
@@ -136,12 +156,6 @@ export class TurnQueue implements RouteTarget {
   }
 }
 
-const ROLE_RANK: Record<Role, number> = { member: 0, admin: 1, system: 2 };
-
-export function lowestRole(messages: InboundMessage[]): "admin" | "member" {
-  return messages.some((message) => message.sender.role === "member") ? "member" : "admin";
-}
-
 export function shouldSendReply(text: string): boolean {
   const trimmed = text.trim();
   return trimmed !== "" && trimmed !== "NO_REPLY";
@@ -153,6 +167,26 @@ export function bindingFor(bindings: readonly WireBinding[], target: string): Wi
     ?? bindings.find((binding) => target.startsWith(`${binding.channel}:`));
 }
 
+/**
+ * Whether a routed message is steered into the current turn (7.2): a trigger message of the turn's own sender, with
+ * the turn's role, in the turn's thread, while the turn is dispatched or running, in a channel bound with
+ * `interrupt = steer`. prompt() and system turns have no sender, so nothing is steered into them.
+ */
+export function canSteer(
+  turn: Pick<ActiveTurn, "kind" | "phase" | "origin" | "role" | "senders">,
+  msg: InboundMessage,
+  binding: WireBinding | undefined,
+): boolean {
+  return turn.kind === "message"
+    && (turn.phase === "dispatched" || turn.phase === "running")
+    && msg.trigger
+    && !msg.stale
+    && turn.origin === msg.thread
+    && msg.sender.id === turn.senders[0].id
+    && msg.sender.role === turn.role
+    && binding?.interrupt === "steer";
+}
+
 export type TurnPhase = "preparing" | "dispatched" | "running" | "ending";
 
 export interface ActiveTurn {
@@ -162,6 +196,7 @@ export interface ActiveTurn {
   extension: string | null;
   origin: string | null;
   role: Role;
+  /** Exactly one sender for a message turn, none for prompt() and system turns. */
   senders: Sender[];
   messages: InboundMessage[];
   seqs: number[];
@@ -170,11 +205,11 @@ export interface ActiveTurn {
   viaPrompt: boolean;
   startedAt: string;
   phase: TurnPhase;
+  /** onTurnStart listeners ran; a turn that failed before dispatch gets no onTurnEnd either. */
+  listenersStarted: boolean;
   replyMode: "final" | "each";
   lastAssistant: AssistantMessage | null;
   classifier: ClassifierTurn | null;
-  /** The senders requests of the CLASSIFIER.md record, in order; the end of the record waits for them. */
-  classifierSenders: Promise<void>;
   eachChain: Promise<void>;
   typingTimer: NodeJS.Timeout | null;
   typingFailed: boolean;
@@ -208,6 +243,10 @@ export interface DispatcherDeps {
   turnEndListeners: Registry<TurnEndListener>;
   errorNotice: string;
   rulesMaxBytes: number;
+  /** Queued messages of other senders above this count are compressed by the model (`[bridge] queued_summary_after`). */
+  queuedSummaryAfter: number;
+  /** System prompt of the summary request (prompt/queued-summary.md). */
+  queuedSummaryPrompt: string;
 }
 
 const TYPING_INTERVAL_MS = 5000;
@@ -246,10 +285,9 @@ export class Dispatcher implements RouteTarget {
   /** Routing target of the inbound pipeline: steer into the current turn when 7.2 allows it, otherwise queue. */
   route(msg: InboundMessage): void {
     const turn = this.current;
-    if (turn && msg.trigger && !msg.stale && (turn.phase === "dispatched" || turn.phase === "running") && turn.origin === msg.thread) {
-      const binding = bindingFor(this.deps.bindings(), msg.channel.id);
+    if (turn && canSteer(turn, msg, bindingFor(this.deps.bindings(), msg.channel.id))) {
       const pi = this.deps.pi();
-      if (binding?.interrupt === "steer" && ROLE_RANK[msg.sender.role] >= ROLE_RANK[turn.role] && pi) {
+      if (pi) {
         this.steer(pi, turn, msg);
         return;
       }
@@ -316,9 +354,9 @@ export class Dispatcher implements RouteTarget {
       startedAt: localIso(new Date()),
       texts: [] as string[],
       phase: "preparing" as TurnPhase,
+      listenersStarted: false,
       lastAssistant: null,
       classifier: null,
-      classifierSenders: Promise.resolve(),
       eachChain: Promise.resolve(),
       typingTimer: null,
       typingFailed: false,
@@ -326,10 +364,8 @@ export class Dispatcher implements RouteTarget {
       idleTicks: 0,
     };
     if (batch.kind === "message") {
-      const senders: Sender[] = [];
-      for (const message of batch.messages) {
-        if (!senders.some((sender) => sender.id === message.sender.id)) senders.push({ ...message.sender });
-      }
+      // takeNext() gives the messages of one sender.
+      const sender = batch.messages[0].sender;
       const binding = bindingFor(this.deps.bindings(), batch.messages[0].channel.id);
       return {
         ...base,
@@ -337,8 +373,8 @@ export class Dispatcher implements RouteTarget {
         systemKind: null,
         extension: null,
         origin: batch.thread,
-        role: lowestRole(batch.messages),
-        senders,
+        role: sender.role,
+        senders: [{ ...sender }],
         messages: [...batch.messages],
         seqs: batch.messages.flatMap((message) => message.seq),
         viaPrompt: false,
@@ -395,10 +431,18 @@ export class Dispatcher implements RouteTarget {
     batch: Batch,
     turn: ActiveTurn,
     promptChannel: Pick<InboundMessage, "channel" | "platform"> | null,
+    queuedSummary: string | null,
   ): { text: string; images: { type: "image"; data: string; mimeType: string }[] } {
     if (batch.kind === "message") {
       return {
-        text: renderMessageTurn({ role: turn.role, origin: batch.thread, messages: batch.messages, observed: batch.observed }),
+        text: renderMessageTurn({
+          role: turn.role,
+          origin: batch.thread,
+          messages: batch.messages,
+          observed: batch.observed,
+          queued: batch.queued,
+          ...(queuedSummary === null ? {} : { queuedSummary }),
+        }),
         images: collectImages(batch.messages),
       };
     }
@@ -423,6 +467,20 @@ export class Dispatcher implements RouteTarget {
   private async start(batch: Batch): Promise<void> {
     const turn = this.newTurn(batch);
     this.current = turn;
+    let queuedSummary: string | null = null;
+    if (batch.kind === "message" && batch.queued.length > this.deps.queuedSummaryAfter) {
+      const ctx = this.deps.ctx();
+      const summary = ctx
+        ? await summarizeQueued(ctx, this.deps.queuedSummaryPrompt, batch.queued, refDateOf(batch.messages, new Date()), QUEUED_SUMMARY_TIMEOUT_MS)
+        : { kind: "failed" as const, error: "pi 的运行时当前不可用" };
+      if (summary.kind === "failed") {
+        // The turn ends with an error like a turn pi rejected; its messages are complete and not dispatched again.
+        this.deps.ack.complete(turn.seqs);
+        await this.finish(turn, { aborted: false, error: `排队中的 ${batch.queued.length} 条消息压缩失败：${summary.error}` });
+        return;
+      }
+      queuedSummary = summary.text;
+    }
     if (turn.role === "member") {
       // A failed start rejects start(), and kick() lets the rejection end the process: the batch is not acked, so
       // the gateway sends it again, and the daemon compares a record it opened when the process exits.
@@ -447,7 +505,7 @@ export class Dispatcher implements RouteTarget {
       this.deps.queue.restore(batch);
       return;
     }
-    const { text, images } = this.renderBatch(batch, turn, promptChannel);
+    const { text, images } = this.renderBatch(batch, turn, promptChannel, queuedSummary);
     turn.phase = "dispatched";
     turn.texts.push(text);
     this.expectInput(text, turn.id);
@@ -457,6 +515,7 @@ export class Dispatcher implements RouteTarget {
     this.startWatchdog(turn);
     this.notifyGateway(turn);
     const info = this.turnInfo(turn);
+    turn.listenersStarted = true;
     for (const entry of [...this.deps.turnStartListeners.list()]) {
       try {
         entry.fn(info);
@@ -474,7 +533,7 @@ export class Dispatcher implements RouteTarget {
 
   private steer(pi: ExtensionAPI, turn: ActiveTurn, msg: InboundMessage): void {
     const observed = this.deps.queue.takeObserved(msg.thread);
-    const text = renderMessageTurn({ role: turn.role, origin: msg.thread, messages: [msg], observed, kind: "steer" });
+    const text = renderMessageTurn({ role: turn.role, origin: msg.thread, messages: [msg], observed, queued: [], kind: "steer" });
     const images = collectImages([msg]);
     turn.texts.push(text);
     this.expectInput(text, turn.id);
@@ -482,22 +541,6 @@ export class Dispatcher implements RouteTarget {
     this.deps.ack.complete(msg.seq);
     turn.messages.push(msg);
     turn.seqs.push(...msg.seq);
-    if (!turn.senders.some((sender) => sender.id === msg.sender.id)) {
-      turn.senders.push({ ...msg.sender });
-      if (turn.classifier) this.recordClassifierSenders(turn);
-    }
-  }
-
-  /**
-   * Gives the daemon's CLASSIFIER.md record of a member turn the full list of senders after a steered message added
-   * one. A failed request ends the process, like a failed start; the daemon compares the record when it exits.
-   */
-  private recordClassifierSenders(turn: ActiveTurn): void {
-    const senders = turn.senders.map((sender) => sender.id);
-    turn.classifierSenders = turn.classifierSenders.then(() => this.deps.agent.classifierTurnSenders(turn.id, senders));
-    turn.classifierSenders.then(undefined, (error: unknown) => {
-      throw error;
-    });
   }
 
   private expectInput(text: string, turnId: string): void {
@@ -671,7 +714,6 @@ export class Dispatcher implements RouteTarget {
 
   /** A failed end rejects; the callers of finish() let it end the process, and the daemon compares on exit. */
   private async endClassifierTurn(turn: ActiveTurn): Promise<void> {
-    await turn.classifierSenders;
     const end = await this.deps.agent.classifierTurnEnd(turn.id);
     if (end.restored || (end.detail !== undefined && end.detail !== "")) {
       // The daemon notifies the admins itself (DESIGN 7.8).
@@ -735,7 +777,7 @@ export class Dispatcher implements RouteTarget {
     }
 
     const ended: TurnResult = { text, aborted: result.aborted, ...(result.error === undefined ? {} : { error: result.error }) };
-    for (const entry of [...this.deps.turnEndListeners.list()]) {
+    for (const entry of turn.listenersStarted ? [...this.deps.turnEndListeners.list()] : []) {
       try {
         entry.fn(info, ended);
       } catch (error) {

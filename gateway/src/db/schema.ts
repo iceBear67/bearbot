@@ -76,6 +76,11 @@ export const bridgeCursor = sqliteTable(
   (t) => [check("bridge_cursor_single_row", sql`${t.id} = 1`)],
 );
 
+/** Inbound seqs above bridge_cursor that bearbot-im has completed; they are not sent again (DESIGN 6.8). */
+export const bridgeDone = sqliteTable("bridge_done", {
+  seq: integer("seq").primaryKey(),
+});
+
 export const classifierSetting = sqliteTable(
   "classifier_setting",
   {

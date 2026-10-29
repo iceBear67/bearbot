@@ -19,6 +19,7 @@ import {
   RpcError,
   optBool,
   optInt,
+  optIntArray,
   optString,
   paramsObject,
   reqInt,
@@ -95,6 +96,7 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
   /**
    * Delivery rule (contracts 5.3): while the agent is running and bearbot-im is connected, send every
    * inbound row after sentSeq in seq order, stopping at the first row whose attachments are not finished.
+   * Rows in bridge_done were completed by bearbot-im already and are skipped.
    */
   pump(): void {
     const { agentState, log, cfg } = this.deps;
@@ -103,7 +105,7 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
       return;
     }
     for (;;) {
-      const rows = log.inboundAfter(active.sentSeq, PUMP_BATCH);
+      const rows = log.inboundToSend(active.sentSeq, PUMP_BATCH);
       for (const row of rows) {
         if (row.payload.pending) {
           return;
@@ -216,10 +218,12 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
         if (this.active) {
           throw new RpcError(APP_ERROR, "这条连接已经发送过 hello");
         }
-        const ackedSeq = optInt(paramsObject(params), "ackedSeq", 0) ?? 0;
-        const sentSeq = repo.ack(ackedSeq);
+        const p = paramsObject(params);
+        const ackedSeq = optInt(p, "ackedSeq", 0) ?? 0;
+        const done = optIntArray(p, "done", 1);
+        const sentSeq = repo.ack(ackedSeq, done);
         this.active = { conn, sentSeq };
-        logger.info({ ackedSeq, sentSeq }, "bearbot-im connected");
+        logger.info({ ackedSeq, done: done.length, sentSeq }, "bearbot-im connected");
         // Messages follow the hello response.
         setImmediate(() => this.pump());
         return {
@@ -232,7 +236,8 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
 
       ack: (params, conn) => {
         this.requireActive(conn);
-        repo.ack(reqInt(paramsObject(params), "seq", 0));
+        const p = paramsObject(params);
+        repo.ack(reqInt(p, "seq", 0), optIntArray(p, "done", 1));
         return {};
       },
 

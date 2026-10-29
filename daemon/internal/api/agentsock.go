@@ -241,11 +241,6 @@ func (s *Server) classifierTurn(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		writeJSON(w, http.StatusOK, res)
-	case "senders":
-		if err := s.Sup.ClassifierTurnSenders(body.TurnID, body.Senders); err != nil {
-			return err
-		}
-		writeJSON(w, http.StatusOK, struct{}{})
 	case "end":
 		res, err := s.Sup.ClassifierTurnEnd(body.TurnID)
 		if err != nil {
@@ -253,7 +248,7 @@ func (s *Server) classifierTurn(w http.ResponseWriter, r *http.Request) error {
 		}
 		writeJSON(w, http.StatusOK, res)
 	default:
-		return badRequest("phase 必须是 start、senders 或 end，收到 %q", body.Phase)
+		return badRequest("phase 必须是 start 或 end，收到 %q", body.Phase)
 	}
 	return nil
 }

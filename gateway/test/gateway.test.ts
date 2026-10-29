@@ -289,6 +289,34 @@ describe("delivery rule", () => {
     expect(third.peer.messages().map((x) => x.text)).toEqual(["m4"]);
   });
 
+  test("seqs bearbot-im completed above the acked cursor are not sent again", async () => {
+    const { env, gw } = await start();
+    track(await connectDaemon(env));
+    const { peer } = await connectBridge(env);
+    track(peer);
+    for (const text of ["m1", "m2", "m3"]) gw.type(text);
+    await peer.waitMessage((x) => x.text === "m3");
+    expect(peer.messages().map((x) => x.seq[0])).toEqual([1, 2, 3]);
+    // seq 2 is still queued in bearbot-im while seqs 1 and 3 are complete.
+    expect(await peer.request("ack", { seq: 1, done: [3] })).toEqual({});
+    await peer.close();
+
+    const second = await connectBridge(env);
+    track(second.peer);
+    gw.type("m4");
+    await second.peer.waitMessage((x) => x.text === "m4");
+    expect(second.peer.messages().map((x) => x.text)).toEqual(["m2", "m4"]);
+    await second.peer.close();
+
+    // hello carries the completed seqs as well.
+    const third = await connectBridge(env, 1, [2]);
+    track(third.peer);
+    gw.type("m5");
+    await third.peer.waitMessage((x) => x.text === "m5");
+    expect(third.peer.messages().map((x) => x.text)).toEqual(["m4", "m5"]);
+    await expect(third.peer.request("ack", { seq: 5, done: [0] })).rejects.toThrow("done must be an array of integers >= 1");
+  });
+
   test("rows older than replayWindowMs are sent with trigger false and stale true", async () => {
     const { env, gw } = await start({ replayWindowMs: 500 });
     track(await connectDaemon(env));

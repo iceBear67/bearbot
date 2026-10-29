@@ -47,7 +47,7 @@ const SYMLINKS: [string, string][] = [
 ];
 
 /** The test values of daemon/e2e (testenv.DefaultConfig with the short timeouts of fastConfig). */
-function config(errorNotice: string): string {
+function config(errorNotice: string, queuedSummaryAfter: number): string {
   const q = (value: string) => JSON.stringify(value);
   return `[daemon]
 log_level = "debug"
@@ -97,6 +97,7 @@ enabled = true
 
 [bridge]
 observe_limit = 30
+queued_summary_after = ${queuedSummaryAfter}
 hold_warn_after = "10m"
 error_notice = ${q(errorNotice)}
 
@@ -124,7 +125,8 @@ export const ERROR_NOTICE = "处理时出现错误，已通知管理员。";
 export class TestRoot {
   readonly root: string;
 
-  constructor() {
+  /** `queuedSummaryAfter` is `[bridge] queued_summary_after` (default 10, as testenv.DefaultConfig). */
+  constructor(options: { queuedSummaryAfter?: number } = {}) {
     const gatewayMain = join(REPO, "gateway", "dist", "main.js");
     if (!existsSync(gatewayMain)) throw new Error(`${gatewayMain} 不存在：请先在仓库根目录执行 npm run build -w gateway`);
     this.root = mkdtempSync("/tmp/bb");
@@ -135,7 +137,7 @@ export class TestRoot {
       symlinkSync(resolved, this.path(link));
     }
     for (const dir of ["/bearbot/profile", "/bearbot/workspace", "/bearbot/config", "/home/bearbot"]) mkdirSync(this.path(dir), { recursive: true });
-    writeFileSync(this.path("/bearbot/config/bearbot.toml"), config(ERROR_NOTICE), { mode: 0o600 });
+    writeFileSync(this.path("/bearbot/config/bearbot.toml"), config(ERROR_NOTICE, options.queuedSummaryAfter ?? 10), { mode: 0o600 });
   }
 
   path(rel: string): string {
@@ -212,12 +214,13 @@ export class TestRoot {
   }
 
   /** The gateway's bridge_cursor and the newest inbound seq of message_log. */
-  cursor(): { acked: number; newestInbound: number } {
+  cursor(): { acked: number; done: number[]; newestInbound: number } {
     const db = new DatabaseSync(this.path("/bearbot/profile/bearbot/gateway/gateway.db"), { readOnly: true });
     try {
       const acked = db.prepare("select acked_seq as seq from bridge_cursor where id = 1").get() as { seq: number } | undefined;
+      const done = db.prepare("select seq from bridge_done order by seq").all() as { seq: number }[];
       const newest = db.prepare("select max(seq) as seq from message_log where direction = 'in'").get() as { seq: number | null };
-      return { acked: acked?.seq ?? 0, newestInbound: newest.seq ?? 0 };
+      return { acked: acked?.seq ?? 0, done: done.map((row) => row.seq), newestInbound: newest.seq ?? 0 };
     } finally {
       db.close();
     }

@@ -148,23 +148,44 @@ function observedBody(message: InboundMessage): string {
   return message.text;
 }
 
-/** One line (plus attachment lines) inside `<observed>`. */
-export function renderObservedLine(message: InboundMessage, refDate: string): string {
+/**
+ * One line (plus attachment lines) inside `<observed>`. `queued` marks a trigger message of another sender that
+ * waits in the dispatch queue for its own turn.
+ */
+export function renderObservedLine(message: InboundMessage, refDate: string, queued = false): string {
   const marks: string[] = [];
   // The id lets the agent quote the message with im_send replyTo; action and reaction ids belong to other messages.
   if ((message.kind === "message" || message.kind === "command") && message.id !== "") marks.push(`（消息 ${message.id}）`);
   if (message.sender.isBot) marks.push("（机器人）");
   if (message.edited) marks.push("（已编辑）");
   if (message.stale) marks.push("（过期）");
+  if (queued) marks.push("（排队中）");
   const head = `[${timeLabel(message.time, refDate)}] ${escapeText(who(message.sender.name, message.sender.id))}${marks.join("")}`;
   const lines = [`${head}: ${escapeText(observedBody(message))}`];
   for (const attachment of message.attachments) lines.push(renderAttachment(attachment));
   return lines.join("\n");
 }
 
-function renderObserved(observed: InboundMessage[], refDate: string): string[] {
-  if (observed.length === 0) return [];
-  return ["<observed>", ...observed.map((message) => renderObservedLine(message, refDate)), "</observed>"];
+/** The line that replaces the queued messages when the model compressed them. */
+export function renderQueuedSummary(queued: InboundMessage[], summary: string): string {
+  const senders: string[] = [];
+  for (const message of queued) {
+    const name = who(message.sender.name, message.sender.id);
+    if (!senders.includes(name)) senders.push(name);
+  }
+  return `[排队中的 ${queued.length} 条消息的摘要，来自 ${escapeText(senders.join("、"))}]: ${escapeText(summary)}`;
+}
+
+function renderObserved(observed: InboundMessage[], queued: InboundMessage[], queuedSummary: string | null, refDate: string): string[] {
+  if (observed.length === 0 && queued.length === 0) return [];
+  return [
+    "<observed>",
+    ...observed.map((message) => renderObservedLine(message, refDate)),
+    ...(queuedSummary !== null && queued.length > 0
+      ? [renderQueuedSummary(queued, queuedSummary)]
+      : queued.map((message) => renderObservedLine(message, refDate, true))),
+    "</observed>",
+  ];
 }
 
 function renderContexts(messages: InboundMessage[]): string[] {
@@ -183,7 +204,8 @@ function turnOpen(attrs: [string, string | null][]): string {
   return `${out}>`;
 }
 
-function refDateOf(messages: InboundMessage[], now: Date): string {
+/** Date (YYYY-MM-DD) of the newest message, against which observed times are written. */
+export function refDateOf(messages: InboundMessage[], now: Date): string {
   const last = messages.at(-1);
   return last ? splitTime(last.time).date : splitTime(localIso(now)).date;
 }
@@ -193,6 +215,8 @@ export interface MessageTurnInput {
   origin: string;
   messages: InboundMessage[];     // trigger messages, in order
   observed: InboundMessage[];
+  queued: InboundMessage[];       // queued trigger messages of other senders in the thread
+  queuedSummary?: string;         // the model's summary of `queued`, rendered in place of them
   kind?: "steer";
   now?: Date;
 }
@@ -207,7 +231,7 @@ export function renderMessageTurn(input: MessageTurnInput): string {
   const lines = [
     turnOpen([["role", input.role], ["origin", input.origin], ["kind", input.kind ?? null]]),
     renderChannel(first),
-    ...renderObserved(observed, refDate),
+    ...renderObserved(observed, input.queued, input.queuedSummary ?? null, refDate),
     ...fresh.map((message) => renderMessage(message)),
     ...renderContexts(input.messages),
     "</bearbot-turn>",

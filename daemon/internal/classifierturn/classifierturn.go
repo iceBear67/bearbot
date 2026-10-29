@@ -15,7 +15,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -76,7 +75,7 @@ func (s FileState) Summary() string {
 }
 
 // Record is the start record of the open turn (daemon/classifier-turn/current.json + current.content).
-// Senders are the senders of the turn's trigger messages: those of the start, then those of steered messages.
+// Senders are the senders of the turn's trigger messages: one for a turn of chat messages, none for a prompt() turn.
 type Record struct {
 	TurnID    string    `json:"turnId"`
 	StartedAt time.Time `json:"startedAt"`
@@ -293,40 +292,6 @@ func (r *Recorder) Start(turnID string, senders []string, rulesMaxBytes int64) (
 		res.Content = &content
 	}
 	return res, rec, nil
-}
-
-// AddSenders adds the senders of messages steered into the open turn turnID (DESIGN 7.2) to its record, so the end
-// comparison names every sender of the turn: the recorded senders stay first, the new ones follow in the given
-// order, each sender once. It returns the record; without a record it returns ErrNoTurn.
-func (r *Recorder) AddSenders(turnID string, senders []string) (*Record, error) {
-	rec, err := r.Pending()
-	if err != nil {
-		return nil, err
-	}
-	if rec == nil {
-		return nil, ErrNoTurn
-	}
-	if turnID != rec.TurnID {
-		return nil, fmt.Errorf("未结束的回合是 %s，不是 %s", rec.TurnID, turnID)
-	}
-	added := false
-	for _, sender := range senders {
-		if !slices.Contains(rec.Senders, sender) {
-			rec.Senders = append(rec.Senders, sender)
-			added = true
-		}
-	}
-	if !added {
-		return rec, nil
-	}
-	data, err := json.Marshal(rec)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeAtomic(r.recordPath(), data); err != nil {
-		return nil, err
-	}
-	return rec, nil
 }
 
 func writeAtomic(path string, data []byte) error {

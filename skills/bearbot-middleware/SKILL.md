@@ -31,14 +31,14 @@ gateway 通知 message
   ├─ 1. 订阅者：依次调用 onMessage 监听函数（只读，等待全部完成）
   ├─ 2. 中间件：按 order 依次调用，每个中间件通过 next(msg) 交给下一个
   ├─ 3. 路由：drop → 确认；trigger = false → 放入该会话串的旁观缓冲区，确认；trigger = true → 放入派发队列
-  └─ 4. 派发：agent 空闲时，从队列取出最早一条消息所在会话串的全部待派发消息，组成一轮
+  └─ 4. 派发：agent 空闲时，从队列取出最早一条消息所在会话串中、同一个发送者（身份与角色都相同）的全部待派发消息，组成一轮
 ```
 
-- **一个会话、一个派发队列**：所有绑定频道（多个群和私聊）的触发消息，以及扩展通过 `prompt()` 发起的请求，进入同一个派发队列，在同一个会话中一轮一轮依次处理，同一时间最多一轮。每一轮只包含来自同一个会话串的消息，回复只发往这个会话串。
-- **确认**：每条消息在被路由处理（放入旁观缓冲区、派发、被丢弃）后才算完成，`bearbot-im` 向 gateway 确认已经连续完成的最大 `seq`。被中间件扣留的消息没有完成，进程重启后 gateway 会补发它们。
+- **一个会话、一个派发队列**：所有绑定频道（多个群和私聊）的触发消息，以及扩展通过 `prompt()` 发起的请求，进入同一个派发队列，在同一个会话中一轮一轮依次处理，同一时间最多一轮。每一轮只包含来自同一个会话串、同一个发送者的消息，回复只发往这个会话串。同一会话串中其他人的待派发消息留在队列中，之后各自组成一轮；它们作为带“（排队中）”标记的旁观消息出现在本轮中，超过 `[bridge] queued_summary_after` 条时先由模型压缩为一段摘要。
+- **确认**：每条消息在被路由处理（放入旁观缓冲区、派发、被丢弃）后才算完成，`bearbot-im` 向 gateway 确认已经连续完成的最大 `seq`，以及这个位置之后已经完成的 `seq`。被中间件扣留的消息没有完成，进程重启后 gateway 会补发它们；已经完成的消息不会再补发。
 - **旁观缓冲区**：每个会话串保留最近 `observe_limit`（默认 30）条 `trigger = false` 的消息，派发时随同一会话串的消息一起交给模型（`<observed>`），然后清空。
-- **本轮角色**：本轮所有触发消息发送者中最低的角色（`member` 低于 `admin`）。`member` 回合中的工具调用由 classifier 检查。
-- **回合进行中到达的触发消息**：同时满足三个条件时插入当前回合：消息所在的会话串就是本轮的 `origin`；该频道绑定的 `interrupt` 为 `steer`；发送者角色不低于本轮角色。其他情况留在队列中排队。
+- **本轮角色**：本轮发送者的角色；`prompt()` 发起的回合为请求中的角色。`member` 回合中的工具调用由 classifier 检查。
+- **回合进行中到达的触发消息**：同时满足以下条件时插入当前回合：当前回合由聊天消息组成；消息所在的会话串就是本轮的 `origin`；发送者就是本轮的发送者，并且角色与本轮角色相同；该频道绑定的 `interrupt` 为 `steer`。其他情况（包括其他人的消息、`prompt()` 发起的回合）留在队列中排队。
 - **回复**：绑定的 `reply_mode = final` 时发送本轮最后一条助手消息的文本，`each` 时每条包含文本的助手消息都发送；文本为空或等于 `NO_REPLY` 时不发送。发送前经过出站中间件。
 - **交给模型的文本**：中间件写入 `msg.context` 的内容渲染为 `<context from="<from>">…</context>`，放在本轮的 `<bearbot-turn>` 中。`from` 原样取自中间件写入的条目，`bearbot-im` 不会填写或检查它，模型却把它当作中间件所属扩展的名称，所以中间件必须把 `from` 填成自己扩展的名称（传给 `useBearbot` 的 `name`）；`stale` 的消息只出现在 `<observed>` 中；命令消息带 `command`、`args` 属性。
 
@@ -90,7 +90,7 @@ export type Next = (msg: InboundMessage) => void;
 
 export interface MiddlewareControl {
   drop(msg: InboundMessage, reason: string): void;      // 丢弃，不再交给后续中间件
-  merge(msgs: InboundMessage[]): InboundMessage;         // 合并为一条：seq 合并，文本按时间顺序拼接，附件合并
+  merge(msgs: InboundMessage[]): InboundMessage;         // 合并同一个发送者、同一角色的消息为一条：seq 合并，文本按时间顺序拼接，附件合并
   reply(msg: InboundMessage, text: string): Promise<void>; // 直接回复，不经过模型
 }
 
@@ -110,7 +110,7 @@ export type OutboundMiddleware =
 export interface TurnInfo {
   origin: string;
   role: Role;
-  senders: Sender[];
+  senders: Sender[];          // 聊天消息的回合恰好一个，prompt() 与系统回合为空
   messages: InboundMessage[];
 }
 
@@ -171,7 +171,7 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 - 按 `order` 从小到大调用，`order` 相同时按注册顺序。`bearbot-im` 的路由排在最后。
 - 中间件调用 `next(msg)` 把消息交给下一个中间件，可以在任何时候调用（例如定时器到期时），也可以把修改后或合并后的消息交给 `next`。
 - 中间件既没有调用 `next` 也没有调用 `ctl.drop` 时，消息处于“扣留”状态。被扣留的消息没有完成确认，进程重启后会被补发；扣留超过 `hold_warn_after`（默认 10 分钟）时产生诊断。
-- 合并：`ctl.merge(msgs)` 产生的消息带有所有原始消息的 `seq`。合并后的消息到达路由时，这些 `seq` 一起完成。被合并的消息各自的 `next` 不需要再调用。
+- 合并：`ctl.merge(msgs)` 产生的消息带有所有原始消息的 `seq`。合并后的消息到达路由时，这些 `seq` 一起完成。被合并的消息各自的 `next` 不需要再调用。只能合并同一个发送者、同一角色（`sender.id` 与 `sender.role` 都相同）的消息，否则抛出异常：每一轮只代表一个发送者，合并后的文字不能记在没有写它的人名下，也不能得到写它时没有的角色。同一个人在两条消息之间可能被添加或移除管理员，所以按发送者分组时要同时按角色分组。
 - 中间件抛出异常（同步，或者返回的 Promise 被拒绝）时，`bearbot-im` 记录诊断，并以进入该中间件之前的消息调用下一个中间件，一个扩展的错误不会让 bot 不再响应。
 - 中间件可以修改 `msg.text`、`msg.trigger`，向 `msg.context` 追加内容，在 `msg.meta` 中给后面的中间件留下数据。追加到 `msg.context` 的条目中，`from` 必须是扩展自己的名称（传给 `useBearbot` 的 `name`）：模型把 `from` 当作中间件所属扩展的名称，`bearbot-im` 不会填写或检查这个字段。
 - `ctl.reply(msg, text)` 直接回复到 `msg.thread`，不经过模型；回复之后通常再调用 `ctl.drop`，或者把消息交给 `next` 让模型继续处理。
@@ -208,25 +208,26 @@ import { useBearbot, type InboundMessage, type Next } from "/opt/bearbot/sdk/ind
 
 export default function (pi: ExtensionAPI) {
   const bearbot = useBearbot(pi, { name: "debounce" });
-  const pending = new Map<string, { msgs: InboundMessage[]; next: Next; timer: NodeJS.Timeout }>();
+  const pending = new Map<string, { items: { msg: InboundMessage; next: Next }[]; timer: NodeJS.Timeout }>();
 
   bearbot.use((msg, next, ctl) => {
     if (!msg.trigger) return next(msg);
-    const key = `${msg.thread}|${msg.sender.id}`;
-    const entry = pending.get(key) ?? { msgs: [], next, timer: undefined as unknown as NodeJS.Timeout };
+    // merge() only accepts messages of one sender with one role.
+    const key = `${msg.thread}|${msg.sender.id}|${msg.sender.role}`;
+    const entry = pending.get(key) ?? { items: [], timer: undefined as unknown as NodeJS.Timeout };
     clearTimeout(entry.timer);
-    entry.msgs.push(msg);
-    entry.next = next;
+    entry.items.push({ msg, next });
     entry.timer = setTimeout(() => {
       pending.delete(key);
       try {
-        entry.next(ctl.merge(entry.msgs));
+        entry.items[entry.items.length - 1].next(ctl.merge(entry.items.map((item) => item.msg)));
       } catch (error) {
         bearbot.diagnostic({
           level: "error",
-          message: "debounce 合并消息失败",
+          message: "debounce 合并消息失败，消息不合并，逐条交给下一个中间件",
           detail: error instanceof Error ? error.stack : String(error),
         });
+        for (const item of entry.items) item.next(item.msg);
       }
     }, 2000);
     pending.set(key, entry);
@@ -234,7 +235,7 @@ export default function (pi: ExtensionAPI) {
 }
 ```
 
-定时器回调中的代码不在 `bearbot-im` 的异常处理范围内，抛出的异常会终止 agent 进程，所以这里自己捕获。
+定时器回调中的代码不在 `bearbot-im` 的异常处理范围内，抛出的异常会终止 agent 进程，所以这里自己捕获。捕获之后要把每条消息用它自己的 `next` 交出去，否则这些消息一直被扣留，之后的消息也都无法确认。
 
 ### 不经过模型的命令
 

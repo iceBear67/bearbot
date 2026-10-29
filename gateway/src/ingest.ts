@@ -30,7 +30,14 @@ export interface Delivery {
 
 class DownloadTimeout extends Error {}
 
+/**
+ * The QQ adapter gives the user id "unknown" when an event carries no openid. Every such sender would share the
+ * identity `qq:unknown`, so the event is rejected; chat-sdk logs the error and the event is not processed (DESIGN 6.5).
+ */
 function identityOf(platform: string, author: Author): string {
+  if (platform === "qq" && author.userId === "unknown") {
+    throw new Error("QQ 事件中没有发送者的 openid，不处理这个事件");
+  }
   return `${platform}:${author.userId}`;
 }
 

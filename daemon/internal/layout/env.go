@@ -102,6 +102,7 @@ func (p Paths) AgentEnv(cfg *config.Config) []string {
 		"BEARBOT_CLASSIFIER_TIMEOUT=" + ms(cfg.Classifier.Timeout),
 		"BEARBOT_CLASSIFIER_RULES_MAX_BYTES=" + strconv.FormatInt(cfg.Classifier.RulesMaxBytes, 10),
 		"BEARBOT_OBSERVE_LIMIT=" + strconv.Itoa(cfg.Bridge.ObserveLimit),
+		"BEARBOT_QUEUED_SUMMARY_AFTER=" + strconv.Itoa(cfg.Bridge.QueuedSummaryAfter),
 		"BEARBOT_HOLD_WARN_AFTER=" + ms(cfg.Bridge.HoldWarnAfter),
 		"BEARBOT_ERROR_NOTICE=" + cfg.Bridge.ErrorNotice,
 	}

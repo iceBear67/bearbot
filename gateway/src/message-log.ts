@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { Db } from "./db/index.ts";
-import { messageLog } from "./db/schema.ts";
+import { bridgeDone, messageLog } from "./db/schema.ts";
 import type { InboundPayload, MessageKind, OutboundPayload } from "./types.ts";
 
 export type MessageRow = typeof messageLog.$inferSelect;
@@ -52,6 +52,17 @@ export class MessageLog {
       .select()
       .from(messageLog)
       .where(and(eq(messageLog.direction, "in"), gt(messageLog.seq, seq)))
+      .orderBy(asc(messageLog.seq))
+      .limit(limit)
+      .all() as InboundRow[];
+  }
+
+  /** Inbound rows after `seq` that bearbot-im has not completed (not in bridge_done), in seq order (DESIGN 6.8). */
+  inboundToSend(seq: number, limit: number): InboundRow[] {
+    return this.db
+      .select()
+      .from(messageLog)
+      .where(and(eq(messageLog.direction, "in"), gt(messageLog.seq, seq), notInArray(messageLog.seq, this.db.select({ seq: bridgeDone.seq }).from(bridgeDone))))
       .orderBy(asc(messageLog.seq))
       .limit(limit)
       .all() as InboundRow[];
