@@ -2,8 +2,10 @@ package e2e
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -243,5 +245,137 @@ func TestStartFailureMaintenanceResumeRollback(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^inc-[0-9]{14}$`).MatchString(id) {
 		t.Fatalf("incident id %s", id)
+	}
+}
+
+// TestForceRepair (DESIGN 5.8 repair --force): while a turn runs, another message waits in bearbot-im's queue and a
+// restart waits in DRAINING, `bearbotd repair --force <说明>` replaces the restart, stops the agent process as an
+// expected exit and opens an incident with the trigger 管理员要求; recovery cannot run without credentials, so the bot
+// enters the maintenance state. In maintenance --force changes nothing. After resume, `/bb repair --force` from the
+// console in RUNNING opens a new incident with its note.
+func TestForceRepair(t *testing.T) {
+	b := newBed(t, func(e *testenv.Env, c *testenv.Config) {
+		turnModelProfile(t, e)
+		c.DrainTimeout = "120s"
+	})
+	d := b.start()
+	d.WaitOutputContains(t, 90*time.Second, "控制台已连接")
+	b.waitState("running", 90*time.Second)
+	rpcLog := b.env.Paths.AgentRPCEventsLog
+	starts := func() int { return b.countLines(rpcLog, `"type":"agent_start"`) }
+	marker := filepath.Join(b.env.Paths.WorkspaceDir, ".queued")
+
+	// Without --force repair is refused outside the maintenance state.
+	if out, stderr, code := b.cli("repair"); code != 1 || out != "" || !strings.Contains(stderr, "当前状态为 running，不能执行 repair") {
+		t.Fatalf("repair in running: %d %q %s", code, out, stderr)
+	}
+
+	b.ext("queue-marker.ts", queueMarkerExtension(b.env.Paths.SDKFile))
+	n := starts()
+	b.apply("队列标记", "apply/1")
+	info := b.waitRunningWith(0, "apply/1", 60*time.Second)
+	// The confirmation turn after the apply restart stays open while pi retries the model request; it is stopped so
+	// that the console's own turn runs.
+	b.waitFor("agent_start of the confirmation turn", 60*time.Second, func() bool { return starts() > n })
+	b.console("/bb stop", "已中止正在进行的回合。", 30*time.Second)
+	n = starts()
+	d.Send(t, "第一个回合")
+	b.waitFor("agent_start of the console turn", 60*time.Second, func() bool { return starts() > n })
+	// The second line waits in bearbot-im's queue (the console binding has interrupt=queue).
+	d.Send(t, "排队的消息")
+	b.waitFor("the console line queued in bearbot-im", 30*time.Second, func() bool { return fileExists(marker) })
+
+	// A restart waits in DRAINING for the turn; the forced repair replaces it.
+	restart := b.cliAsync("restart")
+	b.waitState("draining", 30*time.Second)
+	lines := len(d.Output())
+	// --force counts only before the note, as in /bb repair.
+	out, stderr, code := b.cli("repair", "--force", "先看", "--force")
+	if code != 0 || !strings.Contains(out, "正在运行 recovery 修复，可能需要较长时间……") || !strings.Contains(out, "没有修复，bot 仍处于维护状态") {
+		t.Fatalf("repair --force: %d\n%s\n%s", code, out, stderr)
+	}
+	r := <-restart
+	if r.err != nil || r.code != 1 || !strings.Contains(r.errOut, "管理员强制修复取代了这次重启") {
+		t.Fatalf("restart replaced by repair --force: %+v", r)
+	}
+	id := b.waitMaintenance(30 * time.Second)
+	rec := b.incident(id)
+	if rec.Trigger != "管理员要求" || !strings.Contains(rec.Detail, "repair --force") || rec.Exit != nil || len(rec.Repairs) != 1 || rec.Repairs[0].Note != "先看 --force" || rec.Repairs[0].MaintenanceReason != "" {
+		t.Fatalf("incident.json = %+v", rec)
+	}
+	if !strings.Contains(rec.MaintenanceReason, "recovery 无法运行") {
+		t.Fatalf("maintenance reason = %q", rec.MaintenanceReason)
+	}
+	if !contains(b.gitTags(), "incident/"+id+"/before") {
+		t.Fatalf("tags %v", b.gitTags())
+	}
+	b.outputAfter(lines, "agent：draining → incident（管理员强制修复，正在停止 agent 进程）", 10*time.Second)
+	b.outputAfter(lines, "管理员要求修复：已停止 agent 进程，建立故障 "+id, 10*time.Second)
+	b.outputAfter(lines, "agent：repairing → maintenance", 10*time.Second)
+	stopped := b.lastLine(b.env.Paths.AgentExitsLog, `"pid":`+strconv.Itoa(*info.PID)+`,`)
+	if !strings.Contains(stopped, `"expected":true`) {
+		t.Fatalf("exit record of the stopped process: %s", stopped)
+	}
+	if st := b.state(); st.Deliver.LastExit != nil || st.Maintenance == nil || *st.Maintenance.IncidentID != id {
+		t.Fatalf("state after repair --force: %+v", st)
+	}
+	if _, stderr, code := b.cli("repair", "--force"); code != 0 {
+		t.Fatalf("repair --force in maintenance: %d %s", code, stderr)
+	}
+	if rec := b.incident(id); len(rec.Repairs) != 2 || rec.Repairs[1].MaintenanceReason == "" {
+		t.Fatalf("repair --force in maintenance did not continue the incident: %+v", rec)
+	}
+
+	b.console("/bb resume", "agent 已启动，进入观察期", 60*time.Second)
+	b.console("/bb repair --force 第二次", "没有修复，bot 仍处于维护状态", 60*time.Second)
+	id2 := b.waitMaintenance(30 * time.Second)
+	if id2 == id {
+		t.Fatal("/bb repair --force did not open a new incident")
+	}
+	if prev := b.incident(id); prev.Status != "closed" {
+		t.Fatalf("first incident after the second = %+v", prev)
+	}
+	if rec := b.incident(id2); rec.Trigger != "管理员要求" || len(rec.Repairs) != 1 || rec.Repairs[0].Note != "第二次" {
+		t.Fatalf("second incident = %+v", rec)
+	}
+}
+
+// slowFactoryExtension keeps the trial run of a check busy for 10 seconds, so the check holds the change lock.
+const slowFactoryExtension = `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (_pi: ExtensionAPI) {
+  const end = Date.now() + 10_000;
+  while (Date.now() < end) {}
+}
+`
+
+// TestIncidentStopWhileWaitingForLock (DESIGN 5.7 建立故障): `repair --force` stops the agent while a check holds the
+// change lock, and bearbotd is stopped while the new incident waits for the lock. The incident id is allocated only
+// under the lock, so no incident directory is left without incident.json and no incident is open.
+func TestIncidentStopWhileWaitingForLock(t *testing.T) {
+	b := newBed(t, nil)
+	d := b.start()
+	d.WaitOutputContains(t, 90*time.Second, "控制台已连接")
+	b.waitState("running", 90*time.Second)
+	b.ext("slow.ts", slowFactoryExtension)
+	checks := b.checkDirs()
+	b.callAsync("POST", "/v1/check", map[string]any{})
+	b.waitCheckRunning(checks)
+	b.cliAsync("repair", "--force")
+	d.WaitOutputContains(t, 30*time.Second, "→ incident（管理员要求）")
+	time.Sleep(500 * time.Millisecond)
+	d.Stop(t)
+	if !strings.Contains(b.readFile(b.env.Paths.DaemonLog), "forced repair, stopping the agent process") {
+		t.Fatal("the forced repair did not run")
+	}
+	entries, err := os.ReadDir(b.env.Paths.IncidentsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("incident directories after the stop during the wait for the change lock: %v", entries)
+	}
+	if st := b.state(); st.OpenIncident != nil {
+		t.Fatalf("open incident after the stop: %+v", st.OpenIncident)
 	}
 }

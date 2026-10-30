@@ -33,7 +33,9 @@ type restartCmd struct{ reply chan opResult }
 type newSessionCmd struct{ reply chan opResult }
 type applyDrainCmd struct{ snapshot string }
 type repairCmd struct {
-	note  string
+	note string
+	// force stops the agent process in RUNNING or DRAINING; it changes nothing in MAINTENANCE.
+	force bool
 	reply chan opResult
 }
 type resumeCmd struct{ reply chan opResult }
@@ -437,6 +439,12 @@ func (s *Supervisor) monitor(ctx context.Context) (step, error) {
 				} else {
 					return s.newSession(ap, c)
 				}
+			case repairCmd:
+				if !c.force {
+					c.reject(&StateError{State: s.CurrentState(), Op: c.op()})
+				} else {
+					return s.forceRepair(ctx, ap, dr, c)
+				}
 			default:
 				c.reject(&StateError{State: s.CurrentState(), Op: c.op()})
 			}
@@ -490,6 +498,33 @@ func (s *Supervisor) newSession(ap *agentProc, c newSessionCmd) (step, error) {
 		return nil, err
 	}
 	return startStep{replies: []startReply{{kind: replyNewSession, ch: c.reply}}}, nil
+}
+
+// forceRepair handles `repair --force` in RUNNING or DRAINING (DESIGN 5.8): a restart waiting in the drain is
+// rejected, the agent process is stopped like the rollback stops it, and an incident with the trigger "管理员要求" runs
+// the repair flow with the note.
+func (s *Supervisor) forceRepair(ctx context.Context, ap *agentProc, dr *drain, c repairCmd) (step, error) {
+	if ap.p.Exited() {
+		// The exit and the command were ready together: the exit is unexpected and keeps its own handling.
+		c.reject(errors.New("agent 进程已经自行退出，按意外退出处理，没有执行 repair --force"))
+		return s.unexpectedExit(ap, "", dr.takeReplies())
+	}
+	rejectReplies(dr.takeReplies(), errors.New("管理员强制修复取代了这次重启"))
+	dr.stop()
+	s.setListening(false)
+	s.setWire(wire.Incident, "管理员强制修复，正在停止 agent 进程")
+	s.log.Info("forced repair, stopping the agent process", "pid", ap.p.PID())
+	if err := s.abortAndStop(ap); err != nil {
+		c.reply <- opResult{err: err}
+		return nil, err
+	}
+	outcome, text, err := s.incidents.ForceRepair(ctx, c.note, ap.stderr.Lines(incidentStderrLines))
+	if err != nil {
+		c.reply <- opResult{err: err}
+		return nil, err
+	}
+	c.reply <- opResult{text: text}
+	return flowStep(outcome, nil)
 }
 
 // unexpectedExit handles an exit the daemon did not ask for (DESIGN 5.4): lastExit, then an incident when the

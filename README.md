@@ -276,6 +276,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 | `/bb restart` | 重启 agent 进程（等待当前回合结束） |
 | `/bb status` | daemon、agent、平台与绑定的状态 |
 | `/bb repair [说明]`、`/bb resume` | 维护状态下重新运行 recovery 修复，或者不修复直接恢复运行 |
+| `/bb repair --force [说明]` | agent 运行时也可以使用：中止当前回合、停止 agent 进程，建立故障并交给 recovery 修复（例如回合一直不结束、队列中积压了大量消息时）；维护状态下与 `/bb repair` 相同 |
 | `/bb rollback [快照]` | 回滚到指定快照，默认为最近一次应用之前的状态 |
 | `/bb snapshot list`、`/bb snapshot diff <引用> [引用]` | 查看快照与快照之间的差异 |
 | `/bb admin list`、`/bb admin add <身份>`、`/bb admin remove <身份>` | 管理员管理；回复某人的消息发送 `/bb admin add` 可以直接添加这个人 |
@@ -298,6 +299,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 | `restart` | 重启 agent 进程 |
 | `incident list`、`incident show <id>` | 故障记录 |
 | `repair [说明]`、`resume` | 维护状态下的处理 |
+| `repair --force [说明]` | agent 运行时停止它，建立故障并交给 recovery 修复 |
 | `rollback [快照]` | 管理员回滚 |
 | `snapshot list`、`snapshot diff <引用> [引用]` | 快照查看 |
 | `python rebuild` | 镜像更换 Python 版本后重建虚拟环境，在 daemon 没有运行时用 `docker run --rm <挂载参数> bearbot python rebuild` 执行 |

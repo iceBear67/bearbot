@@ -65,7 +65,7 @@ export const HELP_TEXT = [
   "/bb compact [说明]：压缩当前会话",
   "/bb restart：重启 agent 进程（等待回合结束）",
   "/bb status：组件状态、平台连接状态、绑定的频道、当前故障、维护状态",
-  "/bb repair [说明]：维护状态下带着说明重新修复",
+  "/bb repair [--force] [说明]：维护状态下带着说明重新修复；加 --force 时中止正在运行的 agent，建立故障并修复",
   "/bb resume：维护状态下不做改动直接恢复运行",
   "/bb rollback [快照]：回滚到指定快照，默认为最近一次应用之前的状态",
   "/bb snapshot list：快照列表",
@@ -273,8 +273,14 @@ export class Commands {
         noExtra(0);
         return this.status();
       case "repair": {
-        const note = restAfter(ctx.args, 1);
-        return textResult(await this.deps.daemon.request("repair", note === "" ? {} : { note }));
+        // Only the word "--force" right after "repair" in the original text is the option; the rest is the note.
+        const afterSub = restAfter(ctx.args, 1);
+        const force = /^--force(\s|$)/.test(afterSub);
+        const note = force ? restAfter(afterSub, 1) : afterSub;
+        const params: { note?: string; force?: true } = {};
+        if (note !== "") params.note = note;
+        if (force) params.force = true;
+        return textResult(await this.deps.daemon.request("repair", params));
       }
       case "resume":
         noOptions();

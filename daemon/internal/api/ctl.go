@@ -63,7 +63,8 @@ func (s *Server) HandleCtl(ctx context.Context, method string, params json.RawMe
 		return text(s.Sup.IncidentShow(p.ID))
 	case "repair":
 		var p struct {
-			Note *string `json:"note"`
+			Note  *string `json:"note"`
+			Force *bool   `json:"force"`
 		}
 		if err := ctlParams(params, &p); err != nil {
 			return nil, err
@@ -72,7 +73,7 @@ func (s *Server) HandleCtl(ctx context.Context, method string, params json.RawMe
 		if p.Note != nil {
 			note = *p.Note
 		}
-		return text(s.Sup.Repair(note))
+		return text(s.Sup.Repair(note, p.Force != nil && *p.Force))
 	case "resume":
 		if err := ctlParams(params, &struct{}{}); err != nil {
 			return nil, err

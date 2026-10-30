@@ -173,6 +173,19 @@ func Commands(client func() (*Client, error)) []*cobra.Command {
 		},
 	)
 
+	var force bool
+	repair := &cobra.Command{
+		Use:   "repair [--force] [说明]",
+		Short: "维护状态下带着说明重新运行 recovery；加 --force 时停止正在运行的 agent，建立故障并修复",
+		Args:  cobra.ArbitraryArgs,
+		RunE: run(http.MethodPost, "/admin/v1/repair", func(a []string) any {
+			return map[string]any{"note": strings.Join(a, " "), "force": force}
+		}),
+	}
+	repair.Flags().BoolVar(&force, "force", false, "在 running 或 draining 状态下中止当前回合、停止 agent 进程，建立故障并修复")
+	// As in `/bb repair`, --force counts only before the note; option words in the note belong to it.
+	repair.Flags().SetInterspersed(false)
+
 	snapshot := &cobra.Command{Use: "snapshot", Short: "快照", Args: cobra.NoArgs}
 	snapshot.AddCommand(
 		&cobra.Command{
@@ -201,12 +214,7 @@ func Commands(client func() (*Client, error)) []*cobra.Command {
 		admin,
 		{Use: "restart", Short: "重启 agent 进程（等待当前回合结束）", Args: cobra.NoArgs, RunE: run(http.MethodPost, "/admin/v1/restart", empty)},
 		incident,
-		{
-			Use:   "repair [说明]",
-			Short: "维护状态下带着说明重新运行 recovery",
-			Args:  cobra.ArbitraryArgs,
-			RunE:  run(http.MethodPost, "/admin/v1/repair", func(a []string) any { return map[string]string{"note": strings.Join(a, " ")} }),
-		},
+		repair,
 		{Use: "resume", Short: "维护状态下不做改动，恢复运行", Args: cobra.NoArgs, RunE: run(http.MethodPost, "/admin/v1/resume", empty)},
 		{
 			Use:   "rollback [快照]",

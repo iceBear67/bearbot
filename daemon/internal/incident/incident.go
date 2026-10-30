@@ -235,22 +235,26 @@ func lastApply(ctx context.Context, repo *snapshot.Repo) (*state.Applied, error)
 
 // create records a new incident: incident.json, the snapshot incident/<id>/before, the open incident in
 // state.json, and the agent state "incident". An open incident that was in probation is closed as superseded. The
-// change lock is held from the state change until the open incident is recorded: an apply that passed its state
-// check before commits first and its files are part of incident/<id>/before; a later one sees the new state.
+// state changes before the change lock is taken: an apply that passed its state check before commits first and its
+// files are part of incident/<id>/before; a later one sees the new state. The id and its directory are allocated
+// under the lock, and the records run to the end even when the daemon is asked to stop meanwhile, so a stop during
+// the wait for the lock leaves no incident directory without incident.json.
 func (m *Manager) create(ctx context.Context, trigger, detail string, exit *proc.ExitStatus, stderr []string) (*Record, error) {
 	h := m.h
 	p := h.Paths()
 	repo := h.Repo()
-	id, err := newID(p)
-	if err != nil {
-		return nil, err
-	}
-	h.SetWire(wire.Incident, id+"："+trigger)
+	h.SetWire(wire.Incident, trigger)
 	unlock, err := h.LockChanges(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
+	ctx = context.WithoutCancel(ctx)
+	id, err := newID(p)
+	if err != nil {
+		return nil, err
+	}
+	h.SetWire(wire.Incident, id+"："+trigger)
 	st := h.State()
 	if old := st.OpenIncident; old != nil {
 		prev, err := Load(p, old.ID)
@@ -399,12 +403,34 @@ func (m *Manager) Repair(ctx context.Context, note string) (Outcome, string, err
 	if err != nil {
 		return 0, "", err
 	}
-	if rec, err = Load(h.Paths(), rec.ID); err != nil {
+	return m.repairReply(rec.ID, outcome)
+}
+
+// ForceRepair handles `repair --force` after the supervisor stopped the running agent process (DESIGN 5.8): it opens
+// an incident with the trigger "管理员要求" and the stderr of the stopped process, notifies the administrators and
+// runs recovery with the note. It returns the reply text.
+func (m *Manager) ForceRepair(ctx context.Context, note string, stderr []string) (Outcome, string, error) {
+	rec, err := m.create(ctx, TriggerAdmin, "管理员执行 repair --force，停止了运行中的 agent 进程", nil, stderr)
+	if err != nil {
+		return 0, "", err
+	}
+	m.h.Notify(fmt.Sprintf("管理员要求修复：已停止 agent 进程，建立故障 %s，正在由 recovery 修复，修复期间触发消息会收到维护提示。", rec.ID))
+	outcome, err := m.repair(ctx, rec, note, "")
+	if err != nil {
+		return 0, "", err
+	}
+	return m.repairReply(rec.ID, outcome)
+}
+
+// repairReply is the reply to `repair` after the repair flow of incident id ended with outcome.
+func (m *Manager) repairReply(id string, outcome Outcome) (Outcome, string, error) {
+	rec, err := Load(m.h.Paths(), id)
+	if err != nil {
 		return 0, "", err
 	}
 	if outcome == Running {
 		a := rec.attempt(rec.Resolution.Attempt)
-		return outcome, fmt.Sprintf("故障 %s 已由 recovery 修复（第 %d 次修复）：%s\nagent 已启动，进入观察期（%s）。", rec.ID, a.N, strings.TrimSpace(a.Report.Summary), h.Config().Agent.Probation), nil
+		return outcome, fmt.Sprintf("故障 %s 已由 recovery 修复（第 %d 次修复）：%s\nagent 已启动，进入观察期（%s）。", rec.ID, a.N, strings.TrimSpace(a.Report.Summary), m.h.Config().Agent.Probation), nil
 	}
 	return outcome, fmt.Sprintf("故障 %s 没有修复，bot 仍处于维护状态。\n原因：%s", rec.ID, rec.MaintenanceReason), nil
 }

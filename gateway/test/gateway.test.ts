@@ -875,7 +875,7 @@ describe("/bb commands from the console", () => {
     await gw.waitConsole(/\/bb detach 不接受参数 --prefix\n/);
   });
 
-  test("help, unknown commands and usage errors need no bearbotd; compact and repair notes keep option words", async () => {
+  test("help, unknown commands and usage errors need no bearbotd; compact and repair notes keep option words; --force only right after repair", async () => {
     const { gw, ctl, peer } = await setup();
     gw.type("/bb snapshot diff");
     await gw.waitConsole(/用法：\/bb snapshot diff <引用> \[引用\]/);
@@ -890,6 +890,14 @@ describe("/bb commands from the console", () => {
     expect(await ctl.waitRequest("session")).toEqual({ action: "compact", instructions: "保留 --reply 记忆" });
     gw.type("/bb repair 检查 --prefix=x 参数");
     expect(await ctl.waitRequest("repair")).toEqual({ note: "检查 --prefix=x 参数" });
+    gw.type("/bb repair --force  先看  queue");
+    expect((await ctl.waitRequestEntry("repair", 1)).params).toEqual({ note: "先看  queue", force: true });
+    gw.type("/bb repair 检查 --force");
+    expect((await ctl.waitRequestEntry("repair", 2)).params).toEqual({ note: "检查 --force" });
+    gw.type("/bb repair --force");
+    expect((await ctl.waitRequestEntry("repair", 3)).params).toEqual({ force: true });
+    gw.type("/bb repair --prefix x --force 说明");
+    expect((await ctl.waitRequestEntry("repair", 4)).params).toEqual({ note: "--prefix x --force 说明" });
     gw.type("/bb rollback -x");
     expect(await ctl.waitRequest("rollback")).toEqual({ requester: "console:operator", thread: "console:main", snapshot: "-x" });
     expect(peer.messages()).toHaveLength(0);

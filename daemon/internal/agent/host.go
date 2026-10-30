@@ -41,8 +41,7 @@ func (h *host) StartAgent(ctx context.Context, probation bool) error {
 	return h.s.startAgent(ctx, probation)
 }
 
-// StopAgent sends abort without waiting for it (a locked turn may never end), then stops the process (DESIGN 5.12
-// step 3).
+// StopAgent stops the current agent process with abortAndStop (DESIGN 5.12 step 3).
 func (h *host) StopAgent(ctx context.Context) error {
 	s := h.s
 	s.mu.Lock()
@@ -51,11 +50,17 @@ func (h *host) StopAgent(ctx context.Context) error {
 	if ap == nil {
 		return nil
 	}
+	return s.abortAndStop(ap)
+}
+
+// abortAndStop sends abort without waiting for it (a locked turn may never end), then stops the process (the
+// rollback of DESIGN 5.12 step 3 and `repair --force` of DESIGN 5.8).
+func (s *Supervisor) abortAndStop(ap *agentProc) error {
 	go func() {
 		c, cancel := s.rpcCtx(context.Background())
 		defer cancel()
 		if err := ap.rpc.Abort(c); err != nil {
-			s.log.Info("abort before the rollback stop did not complete", "pid", ap.p.PID(), "err", err)
+			s.log.Info("abort before the stop did not complete", "pid", ap.p.PID(), "err", err)
 		}
 	}()
 	return s.stopAgent(ap, true)

@@ -539,6 +539,7 @@ pi 自己生成的会话 id 是 UUIDv7（`session-manager.js` 中的 `createSess
 
  MAINTENANCE ──管理员 repair──▶ REPAIRING
  MAINTENANCE ──管理员 resume──▶ STARTING（观察期）
+ RUNNING / DRAINING ──管理员 repair --force──▶ INCIDENT
 
  RUNNING / DRAINING / MAINTENANCE ──管理员 rollback──▶ ROLLING_BACK ──完成──▶ STARTING（观察期）
                                                            └──出错──▶ MAINTENANCE
@@ -554,7 +555,7 @@ pi 自己生成的会话 id 是 UUIDv7（`session-manager.js` 中的 `createSess
 - **DRAINING**：等待 agent 空闲（stdout 上出现 `agent_settled`），并且之后 1 秒内没有新的 `agent_start`；进入 `DRAINING` 时 agent 已经空闲的，1 秒后重启。超过 `drain_timeout` 时先发送 RPC `abort`（最长 `rpc_timeout`）再重启。排空期间收到的重启请求合并到这次重启，`/bb new` 返回状态错误。
 - **ROLLING_BACK**：第 5.12 节。
 - **变更锁**：检查、应用的第 1～4 步、快照恢复、回滚，以及修复流程中的检查、建立故障时的快照提交、修复尝试与恢复运行的快照提交，各自持有 daemon 内的一把变更锁执行，同一时间只有一个在进行。检查与应用都有超时上限（类型检查最长 5 分钟，试运行最长为 `start_timeout`、3 秒的观察时间与停止进程的时间之和），所以等待变更锁的操作一定会结束等待；等待中的回滚在状态离开可以回滚的状态时取消（第 5.12 节）。
-- **请求的接受**：来自 `agent.sock`、`admin.sock`、`gateway-ctl.sock` 的请求先按当前状态检查，再交给 daemon 内唯一执行状态变化的生命周期过程。这个过程只在 `RUNNING`、`DRAINING`、`MAINTENANCE` 中等待请求时接受改变状态的请求（重启、`/bb new`、修复、恢复运行、回滚），其他时候这些请求立即返回状态错误，调用方不会排在一个可能很长的修复流程后面。
+- **请求的接受**：来自 `agent.sock`、`admin.sock`、`gateway-ctl.sock` 的请求先按当前状态检查，再交给 daemon 内唯一执行状态变化的生命周期过程。这个过程只在 `RUNNING`、`DRAINING`、`MAINTENANCE` 中等待请求时接受改变状态的请求（重启、`/bb new`、修复、强制修复、恢复运行、回滚），其他时候这些请求立即返回状态错误，调用方不会排在一个可能很长的修复流程后面。
 - gateway 通过 `gateway-ctl` 的 `agent.state` 通知随时得知当前状态，用于 `/bb status` 和维护提示。
 
 ### 5.5 gateway 进程监管
@@ -629,7 +630,7 @@ pi 自己生成的会话 id 是 UUIDv7（`session-manager.js` 中的 `createSess
 
 #### 建立故障
 
-- 故障 id 为 `inc-<UTC 时间 yyyymmddhhmmss>`，同一秒内的第二个故障等到下一秒再分配。状态先改为 `INCIDENT`（原因 `<故障id>：<触发>`），然后在变更锁中完成以下记录，在这之前通过检查的应用先提交，它的文件属于故障时的状态：
+- 故障 id 为 `inc-<UTC 时间 yyyymmddhhmmss>`，同一秒内的第二个故障等到下一秒再分配。状态先改为 `INCIDENT`（原因为触发），然后取得变更锁，在这之前通过检查的应用先提交，它的文件属于故障时的状态。取得变更锁之后分配故障 id、建立 `incidents/<故障id>/` 目录，状态的原因改为 `<故障id>：<触发>`，再在变更锁中完成以下记录；从分配故障 id 开始，这些记录在 daemon 收到停止信号时也会执行完，所以等待变更锁期间 daemon 停止不会留下没有 `incident.json` 的故障目录：
   - 还有未关闭的故障时（例如修复后的版本没有度过观察期），把它关闭为“被新的故障取代”；
   - 提交快照 `incident/<故障id>/before`；
   - 记录写入 `incidents/<故障id>/incident.json`（同时生成 `report.md`）：触发（`启动失败`、`观察期内退出`、`反复退出`、`管理员要求`）与详情、退出码与信号、stderr 最后 200 行、`rpc-events.jsonl` 最后 50 条、最近一次应用的信息（快照、summary、发起者、发起的会话串）、引起故障的应用（只有故障时的文件就是最近一次应用的快照时才填写）、相对 `last-good`（没有时为 `init`）的 `git diff --stat`；
@@ -663,10 +664,16 @@ daemon 在修复期间停止时，故障保持“修复中”。下次启动时 
 3. 通过 gateway 通知所有管理员，消息包含故障 id 与触发（没有故障时写明“无”，有未关闭的故障时写明 `repair` 会继续修复它）、原因、可用的命令。
 4. gateway 对触发消息回复 `maintenance_notice`，每个频道在每次维护期间只回复一次（记录在 gateway 数据库的 `maintenance_notice` 表中，第 6.4 节）；消息照常记入日志，恢复后按第 6.8 节的规则补发。这一规则在 `INCIDENT`、`REPAIRING`、`ROLLING_BACK`、`MAINTENANCE` 中都适用。
 5. 管理员可以在 IM 或命令行中执行：
-   - `repair [说明]`：先退出维护状态（执行 `on_exit`），然后带着说明重新运行 recovery，尝试次数重新计算。有未关闭的故障时继续修复这个故障，提示中另外写明进入维护状态的原因（第 10.4 节）；没有时（维护状态来自回滚出错）建立触发为“管理员要求”的新故障，详情为“管理员在维护状态下执行 repair，维护原因：<原因>”。回复在修复流程结束后发出；
+   - `repair [说明]`：先退出维护状态（执行 `on_exit`），然后带着说明重新运行 recovery，尝试次数重新计算。有未关闭的故障时继续修复这个故障，提示中另外写明进入维护状态的原因（第 10.4 节）；没有时（维护状态来自回滚出错）建立触发为“管理员要求”的新故障，详情为“管理员在维护状态下执行 repair，维护原因：<原因>”。回复在修复流程结束后发出。加上 `--force` 时在维护状态下的处理完全相同；
    - `rollback [快照]`：第 5.12 节，默认回到最近一次应用之前的状态。故障通常发生在应用后的观察期内，所以这个默认值通常就是 `last-good`；
    - `resume`：不做改动，在变更锁中提交快照 `resume/<序号>`，`runningSnapshot` 改为它，退出维护状态（执行 `on_exit`），启动 agent 进程并进入观察期（管理员已手动修复时使用）。未关闭的故障标为由恢复运行解决，观察期结束后关闭。结果同时通知全部管理员；启动失败时建立新的故障。
    从维护状态开始的回滚出错时，再次执行 `on_enter`（使用新的原因），中间不执行 `on_exit`。
+6. 维护状态之外，管理员可以在 `RUNNING`、`DRAINING` 中执行 `repair --force [说明]`，用于 agent 还在运行、但需要立即交给 recovery 修复的情况（例如回合一直不结束，队列中积压了大量消息）：
+   1. 生命周期过程取到请求时 agent 进程已经自行退出的（退出与请求同时到达），请求返回“agent 进程已经自行退出，按意外退出处理，没有执行 repair --force”，这次退出按意外退出处理（第 5.4 节）。否则生命周期过程停止接受请求，等待中的回滚被取消；排空中等待的重启请求返回“管理员强制修复取代了这次重启”。
+   2. 状态改为 `INCIDENT`（原因“管理员强制修复，正在停止 agent 进程”），gateway 开始对触发消息回复维护提示。
+   3. 按回滚的第 3 步停止 agent 进程（第 5.12 节）：发送 RPC `abort`，不等待它完成，然后按第 5.3 节停止进程。这是 daemon 发起的退出，不记为意外退出。`abort` 经 stdin、状态变化经事件连接分别到达 `bearbot-im`，两者的先后不确定：`bearbot-im` 先处理被中止回合的 `agent_settled` 时，会派发队列中的下一轮，这一轮的消息在派发时已经确认，随进程停止而结束，agent 再次启动后不会补发；先收到状态变化时不再派发（只在 `starting`、`running` 中派发）。队列中其余的消息没有确认，保留在 gateway 的 `message_log` 中，agent 再次启动后补发（第 6.8 节）。
+   4. 按第 5.7 节建立故障，触发为“管理员要求”，详情为“管理员执行 repair --force，停止了运行中的 agent 进程”，带上被停止进程的 stderr 最后 200 行，没有退出码与信号。处于观察期的未关闭故障被新的故障取代，待应用项清除，它的文件属于故障时的状态。
+   5. 通知全部管理员“管理员要求修复：已停止 agent 进程，建立故障 <故障id>，正在由 recovery 修复，修复期间触发消息会收到维护提示。”，然后带着说明运行修复流程。回复在修复流程结束后发出，内容与维护状态下的 `repair` 相同。
 
 #### 维护脚本
 
@@ -775,10 +782,10 @@ type BridgeEvent =
 | 方法 | 参数 | 结果与说明 |
 |---|---|---|
 | `status` | `{}` | `StatusInfo`（见下文） |
-| `session` | `{action: "new"\|"abort"\|"compact", instructions?}` | `{text}`，`text` 是回复给管理员的中文说明。`new` 只在 `RUNNING` 时接受：中止当前回合，生成新的会话 id 并重启进程（第 5.3 节）。`abort` 在 `RUNNING`、`DRAINING` 时接受：发送 RPC `abort`（最长 `rpc_timeout`），回复说明是否有正在进行的回合；超时时返回错误，提示可以用 `/bb restart` 或 `/bb rollback` 处理。`compact` 只在 `RUNNING` 时接受：发送 RPC `compact {customInstructions}`，回复摘要的长度与压缩前后的 token 估计；pi 回答 `Nothing to compact` 或其他压缩错误时作为普通回复返回，`rpc_timeout` 内没有完成时回复“pi 仍在压缩，完成后生效”。pi 要等会话空闲才响应 `abort`，而 `bearbot-im` 会在被中止回合的 `agent_settled` 中立即派发排队的回合（第 6.7 节 `/bb stop` 不影响排队的消息），所以 daemon 收到 `abort` 的响应或读到请求之后的 `agent_settled {aborted: true}` 时都算中止完成；daemon 发送的每个 RPC `abort`（这里、排空超时、`/bb new`、回滚的停止）都按这个规则判断 |
+| `session` | `{action: "new"\|"abort"\|"compact", instructions?}` | `{text}`，`text` 是回复给管理员的中文说明。`new` 只在 `RUNNING` 时接受：中止当前回合，生成新的会话 id 并重启进程（第 5.3 节）。`abort` 在 `RUNNING`、`DRAINING` 时接受：发送 RPC `abort`（最长 `rpc_timeout`），回复说明是否有正在进行的回合；超时时返回错误，提示可以用 `/bb restart` 或 `/bb rollback` 处理。`compact` 只在 `RUNNING` 时接受：发送 RPC `compact {customInstructions}`，回复摘要的长度与压缩前后的 token 估计；pi 回答 `Nothing to compact` 或其他压缩错误时作为普通回复返回，`rpc_timeout` 内没有完成时回复“pi 仍在压缩，完成后生效”。pi 要等会话空闲才响应 `abort`，而 `bearbot-im` 会在被中止回合的 `agent_settled` 中立即派发排队的回合（第 6.7 节 `/bb stop` 不影响排队的消息），所以 daemon 收到 `abort` 的响应或读到请求之后的 `agent_settled {aborted: true}` 时都算中止完成；daemon 发送的每个 RPC `abort`（这里、排空超时、`/bb new`、回滚与强制修复的停止）都按这个规则判断 |
 | `restart` | `{}` | `{text}`。重启 agent 进程（等待回合结束），只在 `RUNNING` 时接受；新进程就绪或启动失败之后才响应，结果同时通知全部管理员 |
 | `incident.list`、`incident.get` | `{}`、`{id}` | `{text}`，故障记录，内容与命令行的 `incident list`、`incident show` 相同。第 6.7 节中没有使用它们的命令 |
-| `repair`、`resume` | `{note?}`、`{}` | `{text}`。第 5.8 节，只在 `MAINTENANCE` 时接受；修复流程结束、或者恢复运行后的启动结束之后才响应 |
+| `repair`、`resume` | `{note?, force?}`、`{}` | `{text}`。第 5.8 节，只在 `MAINTENANCE` 时接受；`repair` 带 `force: true` 时也在 `RUNNING`、`DRAINING` 时接受（第 5.8 节第 6 步）。修复流程结束、或者恢复运行后的启动结束之后才响应 |
 | `rollback` | `{snapshot?, requester, thread}` | `{text}`。第 5.12 节；`requester` 为发起命令的管理员身份，`thread` 为发起命令的会话串，两者不能为空；回滚结束之后才响应 |
 | `snapshot.list`、`snapshot.diff` | `{}`、`{ref, ref2?}` | `{text}`，快照查看，内容与命令行的 `snapshot list`、`snapshot diff` 相同 |
 
@@ -833,7 +840,7 @@ type StatusInfo = {
 | `login [--config <路径>]` | 以 `bearbot` 身份、cwd `/home/bearbot` 运行交互式 `<node> /usr/local/bin/pi -ne`，在其中执行 `/login`，凭据写入 profile 的 `auth.json`。环境变量与 agent 进程相同（所以 `PI_CODING_AGENT_DIR` 指向 agent 的 profile），直接使用 `docker exec -it` 的终端，不以 `setsid` 启动；pi 运行期间命令行进程捕获 SIGINT、SIGQUIT 而不退出，等待 pi 结束（这两个信号没有设为忽略，所以 pi 仍然按默认方式处理它们）。不经过 `admin.sock` |
 | `restart` | 重启 agent 进程（等待当前回合结束）。先输出一行“正在重启 agent，等待当前回合结束……”，只在 `RUNNING` 时可以执行 |
 | `incident list`、`incident show <id>` | 故障记录：列表按时间从新到旧，每条为 id、建立时间、触发、状态、修复次数、结果；详情为 `report.md` 的内容加上 rpc 事件与文件位置 |
-| `repair [说明]`、`resume` | 第 5.8 节，只在维护状态下可以执行；`repair` 先输出一行“正在运行 recovery 修复，可能需要较长时间……” |
+| `repair [--force] [说明]`、`resume` | 第 5.8 节，只在维护状态下可以执行；`repair --force` 也可以在 `RUNNING`、`DRAINING` 时执行，先停止 agent 进程并建立故障（第 5.8 节第 6 步）。与 `/bb repair` 一样，`--force` 只在说明之前有效，说明中像选项的词属于说明。`repair` 先输出一行“正在运行 recovery 修复，可能需要较长时间……” |
 | `rollback [快照]` | 第 5.12 节，回滚记录中的发起者与会话串为 `null` |
 | `snapshot list` | 最近 20 个快照引用（从新到旧），每个引用带提交时间、摘要、发起者；同时列出 `last-good`、`runningSnapshot` 指向的快照，以及 `rollback` 不指定快照时的默认目标（例如 `apply/12^`；还没有应用记录时写明需要指定快照） |
 | `snapshot diff <引用> [引用]` | 两个快照之间的 `git diff --stat`；只给一个引用时，与它的父提交比较 |
@@ -1125,7 +1132,7 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 
 仅管理员（包括控制台的内置管理员）可用；非管理员发送时不回应（只写入 gateway 日志），也不交给 agent。命令不写入 `message_log`。命令在后台执行，等待 daemon 的命令（重启、修复等）不会阻塞平台的接收。回复发往发起命令的会话串，以纯文本发送，所以状态与差异等输出不会被 markdown 渲染改变。
 
-参数解析：先用 `string-argv` 把参数文本分成词（支持双引号与单引号，不处理反斜杠转义），再交给 `yargs-parser`。`--trigger`、`--prefix`、`--reply`、`--interrupt` 各自取后面的一个词作为值（以 `-` 开头的值也可以），关闭数字解析、驼峰展开与短选项组合；其他以 `-` 开头的词按普通参数处理，所以 `/bb rollback -x` 会把 `-x` 交给 daemon 的快照引用校验，返回“无效的快照引用”。选项缺少值时返回“参数 --<名称> 需要一个值”；除 `compact`、`repair` 外，同一选项给了两次时返回错误；不接受选项的命令收到选项时返回“/bb <命令> 不接受参数 --<名称>”；多余的参数返回“多余的参数：…”。`compact`、`repair` 的说明取命令名之后的原文（保留原来的空白），其中像选项的词也属于说明。
+参数解析：先用 `string-argv` 把参数文本分成词（支持双引号与单引号，不处理反斜杠转义），再交给 `yargs-parser`。`--trigger`、`--prefix`、`--reply`、`--interrupt` 各自取后面的一个词作为值（以 `-` 开头的值也可以），关闭数字解析、驼峰展开与短选项组合；其他以 `-` 开头的词按普通参数处理，所以 `/bb rollback -x` 会把 `-x` 交给 daemon 的快照引用校验，返回“无效的快照引用”。选项缺少值时返回“参数 --<名称> 需要一个值”；除 `compact`、`repair` 外，同一选项给了两次时返回错误；不接受选项的命令收到选项时返回“/bb <命令> 不接受参数 --<名称>”；多余的参数返回“多余的参数：…”。`compact`、`repair` 的说明取命令名之后的原文（保留原来的空白），其中像选项的词也属于说明；只有紧跟在 `repair` 之后的第一个词恰好是 `--force` 时，它才是 `repair` 的参数，说明取它之后的原文，所以 `/bb repair 说明 --force` 中的 `--force` 属于说明。
 
 | 命令 | 作用 |
 |---|---|
@@ -1138,7 +1145,7 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 | `/bb compact [说明]` | 压缩当前会话（`session {action: "compact", instructions?}`） |
 | `/bb restart` | 重启 agent 进程（等待回合结束） |
 | `/bb status` | daemon 的 `status`（agent 状态与原因、进程、观察期、会话、快照、待应用项、当前故障、维护状态、回滚记录、控制台是否启用），当前回合，各平台连接状态，绑定的频道及其设置。daemon 不可达时，回复“无法取得 bearbotd 的状态：<原因>”，并给出 gateway 自己知道的部分（最近收到的 agent 状态、当前回合、平台、绑定） |
-| `/bb repair [说明]`、`/bb resume` | 第 5.8 节，只在维护状态下可用 |
+| `/bb repair [--force] [说明]`、`/bb resume` | 第 5.8 节，只在维护状态下可用；`/bb repair --force` 也可以在 agent 运行时使用，中止当前回合、停止 agent 进程，建立故障并修复（第 5.8 节第 6 步）。请求带 `force: true` |
 | `/bb rollback [快照]` | 回滚到指定快照，默认为最近一次应用之前的状态；运行时与维护状态下都可以执行（第 5.12 节）。发起者与会话串一起交给 daemon |
 | `/bb snapshot list` | 快照列表，内容与命令行 `snapshot list` 相同（第 5.11 节） |
 | `/bb snapshot diff <引用> [引用]` | 两个快照之间的 `git diff --stat`，只给一个引用时与它的父提交比较 |
@@ -1893,7 +1900,7 @@ rpc 事件最后 50 条：
 快照仓库：git --git-dir=/bearbot/profile/bearbot/snapshots.git --work-tree=/bearbot …（故障时的状态是快照 incident/<id>/before）
 ```
 
-没有内容的项写“无”；没有 `last-good` 时与 `init` 比较；没有退出状态时（例如位置检查失败，或者管理员要求的修复）写明没有进程退出。“进入维护状态的原因”一行只在管理员执行 `repair`、继续处理维护状态下未关闭的故障时写入（例如修复失败之后，或者故障之后的回滚出错之后）。触发为“管理员要求”时（维护状态来自回滚出错而没有未关闭的故障），“详情”中写明维护原因。
+没有内容的项写“无”；没有 `last-good` 时与 `init` 比较；没有退出状态时（例如位置检查失败，或者管理员要求的修复）写明没有进程退出。“进入维护状态的原因”一行只在管理员执行 `repair`、继续处理维护状态下未关闭的故障时写入（例如修复失败之后，或者故障之后的回滚出错之后）。触发为“管理员要求”时有两种来源：维护状态来自回滚出错而没有未关闭的故障时，“详情”中写明维护原因；管理员在 agent 运行时执行 `repair --force` 时，“详情”为“管理员执行 repair --force，停止了运行中的 agent 进程”，stderr 为被停止进程的最后 200 行（第 5.8 节第 6 步）。
 
 之后的提示：
 
@@ -2277,6 +2284,8 @@ bearbot/
 - **会话 id**：应用、`/bb restart`、意外退出后重启，检查打开的都是 `state.json` 中记录的会话；在工作区目录中用 bash 运行一次会产生会话文件的 `pi -p`，再重启，确认打开的仍是原会话；`/bb new` 后 `state.json` 记录新生成的会话 id，新进程用它新建会话，之后的重启打开这个新会话。
 - **Python**：agent 在回合中用 `uv pip install` 安装一个包，重建容器后确认包仍然可用；用不同 `PYTHON_VERSION` 构建镜像，确认 daemon 以非零状态退出并给出重建命令，执行 `python rebuild` 后旧环境中的包全部装回。
 - **启动失败与 recovery**：在 `.pi/extensions/` 中放入语法错误的扩展、工厂函数抛出异常的扩展、两个工具同名的扩展，在 `/bearbot/profile/agent/extensions/` 中放入一个扩展，分别验证故障的建立、`attempts` 用尽后的维护状态、维护脚本的执行、`rollback` 与 `resume`；使用无效的 recovery 凭据验证“recovery 无法运行”。
+- **建立故障时停止 daemon**：一次检查持有变更锁时执行 `repair --force`，在新的故障等待变更锁期间停止 bearbotd，确认没有留下故障目录，也没有未关闭的故障。
+- **强制修复**：在一轮正在进行、队列中还有消息、`restart` 在 `DRAINING` 中等待的时候执行 `bearbotd repair --force <说明>`，确认 `restart` 返回“管理员强制修复取代了这次重启”，进程的退出记为 daemon 发起的退出、没有意外退出记录，建立的故障触发为“管理员要求”并带有说明；维护状态下 `--force` 继续修复未关闭的故障；从控制台执行 `/bb repair --force <说明>` 建立新的故障。
 - **检查**：用含类型错误、语法错误、工厂函数抛出异常、工具同名的扩展，以及 profile 中存在 `AGENTS.md` 的情况分别运行 `bearbot_check`，核对报告内容；确认试运行进程没有连接 gateway，也没有调用 `agent.sock`。
 - **管理员回滚**：
   - 应用一个在 `tool_call` 中拒绝 `write`、`edit`、`bearbot_apply` 的扩展，等它度过观察期，确认 `last-good` 已指向它；

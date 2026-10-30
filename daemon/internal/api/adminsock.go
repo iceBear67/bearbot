@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"bearbot/daemon/internal/agent"
 	"bearbot/daemon/internal/config"
 	"bearbot/daemon/internal/gateway"
 	"bearbot/daemon/internal/incident"
@@ -120,16 +121,17 @@ func (s *Server) AdminHandler() http.Handler {
 	}))
 	mux.HandleFunc("POST /admin/v1/repair", s.admin(func(r *http.Request, out *stream) error {
 		var body struct {
-			Note string `json:"note"`
+			Note  string `json:"note"`
+			Force bool   `json:"force"`
 		}
 		if err := decode(r.Body, &body); err != nil {
 			return err
 		}
-		if err := s.Sup.Require("repair", wire.Maintenance); err != nil {
+		if err := s.Sup.Require("repair", agent.RepairStates(body.Force)...); err != nil {
 			return err
 		}
 		out.line("正在运行 recovery 修复，可能需要较长时间……")
-		t, err := s.Sup.Repair(body.Note)
+		t, err := s.Sup.Repair(body.Note, body.Force)
 		if err != nil {
 			return err
 		}

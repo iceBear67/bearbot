@@ -85,10 +85,20 @@ func (s *Supervisor) Restart() (string, error) {
 	return s.run(restartCmd{reply: reply}, reply, wire.Running)
 }
 
-// Repair runs recovery again in MAINTENANCE (DESIGN 5.8); it returns after the repair ended.
-func (s *Supervisor) Repair(note string) (string, error) {
+// RepairStates returns the states that accept `repair`: MAINTENANCE, and with force also RUNNING and DRAINING
+// (DESIGN 5.8).
+func RepairStates(force bool) []wire.AgentState {
+	if force {
+		return []wire.AgentState{wire.Running, wire.Draining, wire.Maintenance}
+	}
+	return []wire.AgentState{wire.Maintenance}
+}
+
+// Repair runs recovery again in MAINTENANCE (DESIGN 5.8). With force it also stops the running agent process in
+// RUNNING or DRAINING and opens an incident first. It returns after the repair ended.
+func (s *Supervisor) Repair(note string, force bool) (string, error) {
 	reply := make(chan opResult, 1)
-	return s.run(repairCmd{note: note, reply: reply}, reply, wire.Maintenance)
+	return s.run(repairCmd{note: note, force: force, reply: reply}, reply, RepairStates(force)...)
 }
 
 // Resume leaves MAINTENANCE without changes (DESIGN 5.8); it returns after the agent start.
