@@ -119,6 +119,30 @@ export type WireMessage = {
   direction?: "in" | "out";
 };
 
+/** One sender's profile from the platform (DESIGN 6.8 `user`): the chat-sdk UserInfo fields plus the identity. */
+export type WireUserInfo = {
+  /** Identity used by bearbot, for example "telegram:123" or "telegram:chat:-100123". */
+  identity: string;
+  userId: string;
+  fullName: string;
+  userName: string;
+  isBot: boolean;
+  avatarUrl?: string;
+  email?: string;
+};
+
+/** What a platform can tell about one user, before the identity is attached. */
+export type ProfileInfo = Omit<WireUserInfo, "identity">;
+
+/** `avatar` of gateway.sock (DESIGN 6.8): an avatar downloaded into the workspace inbox. */
+export type WireAvatar = {
+  identity: string;
+  /** Relative to the workspace dir, for example "inbox/2026-11-02/telegram:123-avatar.jpg". */
+  path: string;
+  mimeType: string;
+  size: number;
+};
+
 export type ClassifierRuleInfo = { pattern: string; action: "allow" | "deny" };
 
 export type ClassifierInfo = { enabled: boolean; rules: ClassifierRuleInfo[] };

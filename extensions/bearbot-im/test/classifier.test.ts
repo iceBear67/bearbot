@@ -71,7 +71,7 @@ beforeAll(() => {
 
 describe("built-in rules", () => {
   test("im tools and tool_search are allowed", () => {
-    for (const name of ["im_send", "im_history", "im_targets", "tool_search"]) {
+    for (const name of ["im_send", "im_history", "im_targets", "im_user", "im_avatar", "tool_search"]) {
       expect(builtinDecision(name, {}, workspace, workspace, tool(name)).kind).toBe("allow");
     }
   });

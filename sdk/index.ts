@@ -9,6 +9,24 @@ export interface Sender {
   isBot: boolean;
 }
 
+/** Profile of one sender as the platform reports it (see `user()`). */
+export interface UserProfile {
+  id: string;                 // identity, same as Sender.id
+  userId: string;             // the platform's own user id
+  fullName: string;
+  userName: string;
+  isBot: boolean;
+  avatarUrl?: string;         // Slack sends the image URL; other platforms only with avatar()
+  email?: string;             // Slack, when the app has users:read.email
+}
+
+/** A sender's avatar downloaded by the gateway into the workspace inbox. */
+export interface Avatar {
+  path: string;               // relative to the workspace dir, for example "inbox/2026-11-02/telegram:123-avatar.jpg"
+  mimeType: string;
+  size: number;
+}
+
 export interface Attachment {
   type: "image" | "file" | "audio" | "video";
   name: string;
@@ -107,6 +125,8 @@ export interface BearbotApi {
   delete(ref: string): Promise<void>;
   react(ref: string, emoji: string, remove?: boolean): Promise<void>;
   history(target: string, options?: { limit?: number; before?: string }): Promise<InboundMessage[]>;
+  user(identity: string): Promise<UserProfile | null>;
+  avatar(identity: string): Promise<Avatar | null>;
   bindings(): Binding[];
   isAdmin(identity: string): boolean;
   diagnostic(entry: { level: "error" | "warning"; message: string; detail?: string }): void;
@@ -198,6 +218,8 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
     delete: async (ref) => connected().delete(ref),
     react: async (ref, emoji, remove) => connected().react(ref, emoji, remove),
     history: async (target, opts) => connected().history(target, opts),
+    user: async (identity) => connected().user(identity),
+    avatar: async (identity) => connected().avatar(identity),
     bindings: () => connected().bindings(),
     isAdmin: (identity) => connected().isAdmin(identity),
     diagnostic: (entry) => connected().diagnostic(entry),

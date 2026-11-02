@@ -24,13 +24,23 @@ import type {
   InboundMiddleware,
   OutboundMiddleware,
   OutboundReply,
+  UserProfile,
 } from "../../../sdk/index.ts";
 import { AgentClient, type AgentWireState, type BridgeEvent, type IncidentNotice, type ReadyResult, type StatusInfo } from "./agent-client.ts";
 import { Btw, parseBtwRequest } from "./btw.ts";
 import { Classifier } from "./classifier.ts";
 import { type DiagnosticRecord, Diagnostics, diagnosticsFile, formatAdminNotice, formatDiagnosticsForTurn } from "./diagnostics.ts";
 import { Dispatcher, type SystemTurnSpec, type TurnEndListener, type TurnStartListener, TurnQueue } from "./dispatch.ts";
-import { type ClassifierSettings, GatewayClient, type HelloResult, type PostParams, type WireBinding, type WireMessage } from "./gateway-client.ts";
+import {
+  type ClassifierSettings,
+  GatewayClient,
+  type HelloResult,
+  type PostParams,
+  type WireAvatar,
+  type WireBinding,
+  type WireMessage,
+  type WireUserInfo,
+} from "./gateway-client.ts";
 import { Memory, shouldSteerMemory } from "./memory.ts";
 import { AckTracker, type AckState, InboundPipeline, type Owner, OutboundPipeline, Registry, type Subscriber } from "./pipeline.ts";
 import { messageFromWire } from "./render.ts";
@@ -118,6 +128,20 @@ function toBinding(wire: WireBinding): Binding {
     platform: wire.platform,
     trigger: wire.trigger,
     replyMode: wire.replyMode,
+  };
+}
+
+/** SDK shape of `user`; the identity travels as `id`, like Sender.id. */
+function toUserProfile(wire: WireUserInfo | null): UserProfile | null {
+  if (wire === null) return null;
+  return {
+    id: wire.identity,
+    userId: wire.userId,
+    fullName: wire.fullName,
+    userName: wire.userName,
+    isBot: wire.isBot,
+    ...(wire.avatarUrl === undefined ? {} : { avatarUrl: wire.avatarUrl }),
+    ...(wire.email === undefined ? {} : { email: wire.email }),
   };
 }
 
@@ -244,6 +268,7 @@ export class Bridge {
     });
     this.toolsHost = {
       turn: () => this.dispatcher.turn,
+      workspaceDir: config.workspaceReal,
       gateway: this.gateway,
       agent: this.agent,
       sendOutbound: (reply) => this.outbound.run(reply, (current) => this.postReply(current)).result,
@@ -699,6 +724,18 @@ export class Bridge {
           ...(options?.before === undefined ? {} : { before: options.before }),
         });
         return result.messages.map((wire): InboundMessage => ({ ...messageFromWire(wire), meta: { direction: wire.direction ?? "in" } }));
+      },
+      user: async (identity) => {
+        live();
+        assertNotTrial(trial, "user");
+        const result = await this.gateway.request<{ user: WireUserInfo | null }>("user", { identity });
+        return toUserProfile(result.user);
+      },
+      avatar: async (identity) => {
+        live();
+        assertNotTrial(trial, "avatar");
+        const result = await this.gateway.request<{ avatar: WireAvatar | null }>("avatar", { identity });
+        return result.avatar === null ? null : { path: result.avatar.path, mimeType: result.avatar.mimeType, size: result.avatar.size };
       },
       bindings: () => {
         live();

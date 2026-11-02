@@ -54,6 +54,22 @@ export interface Sender {
   isBot: boolean;
 }
 
+export interface UserProfile {
+  id: string;                 // 身份，与 Sender.id 相同
+  userId: string;
+  fullName: string;
+  userName: string;
+  isBot: boolean;
+  avatarUrl?: string;         // 只有 Slack 给出
+  email?: string;             // 只有 Slack 给出
+}
+
+export interface Avatar {
+  path: string;               // 相对工作区目录，图片由 gateway 保存在 inbox/ 中
+  mimeType: string;
+  size: number;
+}
+
 export interface Attachment {
   type: "image" | "file" | "audio" | "video";
   name: string;
@@ -151,6 +167,8 @@ export interface BearbotApi {
   delete(ref: string): Promise<void>;
   react(ref: string, emoji: string, remove?: boolean): Promise<void>;
   history(target: string, options?: { limit?: number; before?: string }): Promise<InboundMessage[]>;
+  user(identity: string): Promise<UserProfile | null>;
+  avatar(identity: string): Promise<Avatar | null>;
   bindings(): Binding[];
   isAdmin(identity: string): boolean;
   diagnostic(entry: { level: "error" | "warning"; message: string; detail?: string }): void;
@@ -161,6 +179,7 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 
 字段说明：
 
+- `user()`、`avatar()`：一个发送者的平台资料与头像，`identity` 与 `Sender.id` 相同；没有资料或没有头像时为 `null`。`avatar()` 的图片由 gateway 下载并保存在工作区 `inbox/` 中，`path` 相对工作区目录。
 - `kind`：`message` 普通消息；`command` 以 `/` 开头的命令（`/bb` 除外，它由 gateway 处理），`command = {name, args}`，例如 `{name: "/weather", args: "上海"}`，初始 `trigger` 为 `true`；`action` 卡片按钮；`reaction` 表情。`action`、`reaction` 的初始 `trigger` 为 `false`。
 - `trigger` 的初始值由绑定的触发方式决定：`mention` 时为“提及了 bot 或者是私聊”，`all` 时为 `true`，`prefix` 时为文本是否以前缀开头（前缀已去掉）。管理员的 `!steer <文本>` 不看触发方式，为 `true`，正文为 `!steer` 之后的文本。被编辑的消息为 `false`。
 - `steer`：只出现在管理员用 `!steer` 发送、没有被编辑的消息上，表示这条消息可以插入这个管理员自己正在进行的回合，不受绑定的 `interrupt` 限制。`ctl.merge` 合并的消息中任一条带有它时，合并结果也带有它。

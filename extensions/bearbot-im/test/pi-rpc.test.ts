@@ -7,7 +7,7 @@ afterAll(removeTempDirs);
 
 // Tests that start the real pi with bearbot-im: `pi --mode rpc --no-session -e <bearbot-im>` (contracts 2.2).
 
-const BEARBOT_TOOLS = ["im_send", "im_history", "im_targets", "bearbot_status", "bearbot_logs", "bearbot_check", "bearbot_apply", "bearbot_snapshot"];
+const BEARBOT_TOOLS = ["im_send", "im_history", "im_user", "im_avatar", "im_targets", "bearbot_status", "bearbot_logs", "bearbot_check", "bearbot_apply", "bearbot_snapshot"];
 
 const PROBE = `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { useBearbot } from ${JSON.stringify(SDK_FILE)};
@@ -24,6 +24,8 @@ export default function (pi: ExtensionAPI) {
     results.apiVersion = bearbot.apiVersion;
     results.post = await bearbot.post("telegram:1", { markdown: "hi" }).then(() => "sent", (error: Error) => error.message);
     results.history = await bearbot.history("telegram:1").then(() => "ok", (error: Error) => error.message);
+    results.user = await bearbot.user("telegram:1").then(() => "ok", (error: Error) => error.message);
+    results.avatar = await bearbot.avatar("telegram:1").then(() => "ok", (error: Error) => error.message);
     results.prompt = await bearbot.prompt({ text: "hi", role: "admin" }).then(() => "ok", (error: Error) => error.message);
     try {
       bearbot.bindings();
@@ -147,7 +149,7 @@ describe("bearbot-im in the real pi (trial mode)", () => {
       onTurnEndReturned: "function",
       lateUse: "function",
     });
-    for (const method of ["post", "history", "prompt", "bindings", "isAdmin"]) {
+    for (const method of ["post", "history", "user", "avatar", "prompt", "bindings", "isAdmin"]) {
       expect(String(results[method])).toContain("试运行中不能调用");
     }
     expect(pi.stderr).toContain("[bearbot 诊断 warning] extension:probe：probe diagnostic");

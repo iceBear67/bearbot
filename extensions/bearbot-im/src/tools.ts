@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -5,14 +7,16 @@ import type { OutboundReply } from "../../../sdk/index.ts";
 import type { AgentClient, CheckReport } from "./agent-client.ts";
 import type { DiagnosticRecord } from "./diagnostics.ts";
 import type { ActiveTurn } from "./dispatch.ts";
-import type { GatewayClient, TargetsResult, WireMessage } from "./gateway-client.ts";
+import type { GatewayClient, TargetsResult, WireAvatar, WireMessage, WireUserInfo } from "./gateway-client.ts";
 import type { OutboundResult } from "./pipeline.ts";
-import { escapeAttr, messageFromWire, renderMessage } from "./render.ts";
+import { escapeAttr, escapeText, imageContent, messageFromWire, renderMessage } from "./render.ts";
 
 // Tools of DESIGN 7.7.
 
 export interface ToolsHost {
   turn(): ActiveTurn | null;
+  /** Workspace dir: avatar files from the gateway are relative to it. */
+  workspaceDir: string;
   gateway: GatewayClient;
   agent: AgentClient;
   sendOutbound(reply: OutboundReply): Promise<OutboundResult>;
@@ -23,6 +27,22 @@ export interface ToolsHost {
 
 function text(content: string, details: unknown = undefined): AgentToolResult<unknown> {
   return { content: [{ type: "text", text: content }], details };
+}
+
+function profileText(user: WireUserInfo): string {
+  const lines = [`<user identity="${escapeAttr(user.identity)}" user-id="${escapeAttr(user.userId)}">`];
+  lines.push(`名字：${escapeText(user.fullName)}`);
+  lines.push(`用户名：${escapeText(user.userName)}`);
+  lines.push(`机器人：${user.isBot ? "是" : "否"}`);
+  if (user.email !== undefined) lines.push(`邮箱：${escapeText(user.email)}`);
+  if (user.avatarUrl !== undefined) lines.push(`头像地址：${escapeText(user.avatarUrl)}`);
+  lines.push("</user>");
+  return lines.join("\n");
+}
+
+/** Avatar file saved by the gateway; the path is relative to the workspace dir. */
+function readAvatar(workspaceDir: string, avatar: WireAvatar): Buffer {
+  return readFileSync(resolve(workspaceDir, avatar.path));
 }
 
 export function formatCheckReport(report: CheckReport): string {
@@ -128,6 +148,44 @@ export function registerTools(pi: ExtensionAPI, host: ToolsHost): void {
       return text(formatHistory(target, result.messages), { count: result.messages.length });
     },
   });
+
+  pi.registerTool({
+    name: "im_user",
+    label: "IM 用户资料",
+    description:
+      "查询一个发送者的平台资料：名字、用户名、是否机器人，Slack 上还有邮箱（应用有 users:read.email 时）与头像地址。identity 是身份（<message> 的 from 括号里、旁观消息、replyTo 的 sender，例如 telegram:123、telegram:chat:-100123、slack:U123、qq:group/<group openid>）。QQ 没有用户资料接口，返回最近一次发言的名字；平台查不到时返回 null。头像的大小固定取 640 像素，用 im_avatar 取得图片。",
+    promptSnippet: "查询发送者的平台资料",
+    parameters: Type.Object({
+      identity: Type.String({ description: "发送者身份，例如 telegram:123" }),
+    }),
+    async execute(_id, params) {
+      const result = await host.gateway.request<{ user: WireUserInfo | null }>("user", { identity: params.identity });
+      if (result.user === null) return text(`查询不到 ${params.identity} 的资料`, { user: null });
+      return text(profileText(result.user), result.user);
+    },
+  });
+
+  pi.registerTool({
+    name: "im_avatar",
+    label: "IM 头像",
+    description:
+      "取得一个发送者的头像，作为图片交给模型。identity 与 im_user 相同。Slack 用头像地址；Telegram 的用户取资料照片，用户没有与 bot 说过话、也不在共同的群里时查不到，telegram:chat:<chat id> 取的是群或频道的头像；QQ 用平台的头像地址。没有头像时返回 null，不拿占位图或别的图片代替。头像由 gateway 下载并保存在工作区 inbox 中。",
+    promptSnippet: "取得发送者的头像图片",
+    parameters: Type.Object({
+      identity: Type.String({ description: "发送者身份，例如 telegram:123" }),
+    }),
+    async execute(_id, params) {
+      const result = await host.gateway.request<{ avatar: WireAvatar | null }>("avatar", { identity: params.identity });
+      if (result.avatar === null) return text(`${params.identity} 没有头像`, { avatar: null });
+      const avatar = result.avatar;
+      const data = readAvatar(host.workspaceDir, avatar);
+      return {
+        content: [{ type: "text", text: `${params.identity} 的头像：${avatar.path}（${avatar.mimeType}，${avatar.size} 字节）` }, imageContent(data, avatar.mimeType)],
+        details: avatar,
+      };
+    },
+  });
+
 
   pi.registerTool({
     name: "im_targets",

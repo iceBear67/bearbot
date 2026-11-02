@@ -286,6 +286,11 @@ export function collectImages(messages: InboundMessage[]): ImageContent[] {
   return images;
 }
 
+/** One image from base64 data, for tool results (the avatar tool). */
+export function imageContent(data: Buffer, mimeType: string): ImageContent {
+  return { type: "image", data: data.toString("base64"), mimeType };
+}
+
 export function userContent(text: string, images: ImageContent[]): (TextContent | ImageContent)[] {
   return [{ type: "text", text }, ...images];
 }

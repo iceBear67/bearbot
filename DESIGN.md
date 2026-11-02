@@ -956,6 +956,7 @@ await bot.initialize();
 - 在轮询模式下，被编辑的消息会作为新消息再次送达，带 `metadata.edited = true`。gateway 把它记为 `edited: true` 的入站消息，`trigger` 为 false，不触发 agent。
 - 适配器把超过 4096 字符的文本截断，所以 gateway 自己分段发送（第 6.8 节）。
 - 令牌与 `/bb` 的识别使用原始文本 `raw.text`（没有时为 `raw.caption`）；交给 agent 的文本为适配器根据实体重建的 markdown（`message.text`）。频道名称取群标题，私聊取对方的姓名或用户名。
+- 用户资料与头像（第 6.8 节的 `user`、`avatar`）：资料用 `getChat` 取得，`telegram:chat:<chat id>` 是群或频道，其他身份是私聊。`getChat` 不返回 `is_bot`，所以 `isBot` 为 false 只表示平台没有给出。头像只有两种来源：用户的头像是 `getUserProfilePhotos` 返回的最新一张照片的最大尺寸，没有照片、用户没有与机器人交互过也不在共同的群里（400 `user not found`）时返回 null，不拿 `getChat` 的图片代替；`telegram:chat:<chat id>` 是群或频道本身，头像是 `getChat` 的 `photo`。取得的尺寸都是 640 像素。`getFile` 之后从 `https://api.telegram.org/file/bot<token>/<file_path>` 下载，这个地址含机器人令牌，所以只有 gateway 下载，agent 只拿到保存到 `inbox/` 的文件。
 
 #### 6.2.2 QQ
 
@@ -968,6 +969,7 @@ await bot.initialize();
 - 回复其他消息时，QQ 只给出被引用消息的引用索引（`ref_msg_idx`）与文本，没有发送者。gateway 在同一会话串中按 `quote_id` 查找这条消息：找到入站消息时 `replyTo` 为 `{id: <它的消息 id>, sender: <它的发送者身份>, name: <它的发送者名字>, text}`；找到机器人发出的消息时 `sender` 为 `qq:bot`、`name` 为机器人用户名；找不到时（绑定之前的消息、超过保留期被清理的消息）`id`、`sender`、`name` 都为空字符串。`text` 总是取 QQ 给出的文本。
 - 发送时带 `replyTo`：见第 6.8 节。发送请求中的 `message_reference` 与被动回复用的 `msg_id` 互不影响，两者同时带上。
 - QQ 事件中没有频道名称。
+- 用户资料与头像（第 6.8 节的 `user`、`avatar`）：QQ 开放平台没有查询用户资料的接口，事件中的 author 也没有头像。资料取 `message_log` 中这个身份最新一条入站消息的名字与是否机器人。头像用腾讯的头像地址 `https://q.qlogo.cn/qqapp/<AppID>/<openid>/640`，下载后按文件头确认是 PNG、JPEG、GIF 或 WebP。这个地址在没有头像或 openid 无效时也返回 200，正文是固定的 40×40 占位图，真实内容由响应头 `X-Info` 说明：以 `notexist` 开头时按没有头像处理，占位图不读取、不保存。
 
 #### 6.2.3 Slack
 
@@ -985,6 +987,7 @@ await bot.initialize();
 - **表情与按钮**：`reaction_added`、`reaction_removed` 与 `block_actions` 分别进入 `onReaction`、`onAction`（第 6.5 节）。
 - **附件**：入站文件带 `fetchData()`，由适配器用机器人令牌下载（只用在与 Slack 相关的地址上）；gateway 按第 6.5 节第 7 步保存。
 - **socket 重发**：`@slack/socket-mode` 对慢确认的事件会重发（`retry_num > 0`），适配器按 `event_id` 去重（在 state 中记录已送达的事件），所以同一条消息不会记录两次。
+- **用户资料与头像**（第 6.8 节的 `user`、`avatar`）：资料用适配器自己的 `getUser`（`users.info`，按用户缓存 8 天），头像取其中的 `profile.image_192`，再由 gateway 用 `downloadAttachment` 下载并保存到 `inbox/`。`email` 需要应用有 `users:read.email` 权限，没有时为空。
 
 #### 6.2.4 企业微信适配器 `@bearbot/chat-adapter-wecom`
 
@@ -1197,6 +1200,8 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 | `react` | `{ref, emoji, remove?}` | `{}` |
 | `typing` | `{target}` | `{}` |
 | `history` | `{target, limit, before?}` | `{messages}`：来自 `message_log` 的消息（含机器人自己发出的），按时间从旧到新。`target` 为频道 id 时取整个频道，为会话串 id 时只取这个会话串；`limit` 至少为 1；`before` 为写成字符串的 `seq`，只取它之前的消息。入站消息带 `direction: "in"`；机器人发出的消息带 `direction: "out"`，发送者为 `{id: "<平台>:bot", name: <机器人用户名>, role: "member", isBot: true}`，`trigger` 为 false |
+| `user` | `{identity}` | `{user}`：这个身份的平台资料 `{identity, userId, fullName, userName, isBot, avatarUrl?, email?}`，查不到时为 null。Slack 用 `users.info`（第 6.2.3 节），`avatarUrl` 为 `image_192` 的地址，`email` 需要应用有 `users:read.email`。Telegram 用 `getChat`（第 6.2.1 节），`isBot` 恒为 false。QQ 与查不到资料的身份取 `message_log` 中这个身份最新一条入站消息的名字（第 6.2.2 节）；控制台的内置管理员固定为 `{userId: "operator", fullName: "控制台", userName: "operator"}`。平台没有启用时返回 `-32000`“平台 <平台> 没有启用”，identity 不写成 `<平台>:<用户 id>` 时返回 `-32602` |
+| `avatar` | `{identity}` | `{avatar}`：`{identity, path, mimeType, size}`，`path` 相对工作区目录（`inbox/<日期>/<身份>-avatar.<扩展名>`），没有头像时为 null。图片由 gateway 下载（Telegram 的下载地址带机器人令牌，第 6.2.1 节），按文件头写扩展名，只接受 PNG、JPEG、GIF、WebP。Slack 用 `users.info` 的 `image_192`，Telegram 的用户用 `getUserProfilePhotos`、`telegram:chat:<id>` 用 `getChat` 的 `photo`，QQ 用 qlogo 地址（第 6.2.2 节）。没有头像时一律为 null，不用占位图代替。控制台没有头像。平台查询或下载失败时返回 `-32000` |
 | `targets` | `{}` | `{targets}`：每个可见的绑定为 `{channel, name, platform, isDM, threads}`，`threads` 为这个频道在 `message_log` 中最近活动的会话串（最多 10 个，从新到旧，每项为 `{thread, lastActiveAt}`） |
 | `origin` | `{requesters: string[] \| null, thread: string \| null}` | `{target}`，系统回合的回复目标：`thread` 属于已绑定频道时返回它；否则 `requesters` 不为 `null` 时返回其中第一个有 `notify_thread` 的管理员的 `notify_thread`，都没有时返回 `null`；`requesters` 为 `null` 时返回管理员列表中第一个有 `notify_thread` 的管理员的（`admin` 表中的管理员排在内置管理员之前） |
 
@@ -1377,6 +1382,8 @@ gateway 通知 message
 |---|---|
 | `im_send` | 参数 `{text?, files?: string[], target?, replyTo?}`，`text` 为 markdown，`text` 与 `files` 不能都为空。`target` 默认为本轮的 `origin`（本轮没有 `origin` 时必须给出），可以指定其他已绑定的频道或会话串、管理员的通知会话串。`files` 为相对工作区目录或绝对的路径，交给 gateway 前换算为绝对路径。`replyTo` 为要引用回复的消息 id（`<message>` 的 `id`、旁观消息中“（消息 …）”里的 id、`im_history` 中的 id），不能为空字符串，原样作为 gateway `post` 的 `replyTo`（第 6.8 节），不填时不引用；gateway 找不到这条消息时作为工具错误返回。经过出站中间件（第 8.3 节）；被丢弃时工具结果中说明由哪个中间件丢弃、原因是什么 |
 | `im_history` | 参数 `{target?, limit?, before?}`：`target` 默认为本轮的 `origin`，`limit` 为 1～200（默认 20），`before` 为 `seq`。返回 `<history target="…">` 包住的 `<message>` 列表，每条另有 `seq` 与 `direction`（`in` 或 `out`）属性 |
+| `im_user` | 参数 `{identity}`，返回 `<user identity="…" user-id="…">` 包住的资料（名字、用户名、是否机器人，有邮箱与头像地址时一并给出），没有资料时说明查不到。调用 gateway 的 `user`（第 6.8 节） |
+| `im_avatar` | 参数 `{identity}`，取得头像并把图片作为 `ImageContent` 交给模型，文本部分说明保存位置、MIME 类型与字节数；没有头像时说明。gateway 把图片保存在工作区 `inbox/` 中，`bearbot-im` 按 `path` 读取（第 6.8 节） |
 | `im_targets` | 参数 `{}`。列出已绑定的频道（名称、平台、私聊或群）与最近活动的会话串 |
 | `bearbot_status` | 参数 `{}`。daemon 的状态（`GET /v1/status`）、最近修复的故障、daemon 推送的最近状态与是否已安排重启、gateway 连接与机器人用户名、已确认的 `seq`、绑定、管理员、classifier 的开关、模型与管理员规则、已加载的工具与命令、已注册的中间件、订阅者与回合监听函数、处理中与被扣留的消息、当前回合与派发队列、最近丢弃的消息、待处理的诊断、尚未确认的回滚记录 |
 | `bearbot_logs` | 参数 `{source: "stderr" \| "rpc" \| "exits" \| "diagnostics", n?}`，`n` 为 1～2000（默认 50）。前三种经 `GET /v1/logs?source=agent` 读取，`diagnostics` 读取 `bearbot-im` 保存的诊断记录 |
@@ -1412,7 +1419,7 @@ gateway 通知 message
 
 - 不连接 gateway，不调用 `agent.sock` 的任何接口，不派发任何回合，所以不执行工具，也不调用 classifier。不读写 `.bearbot/diagnostics.jsonl`。
 - 第 7.1 节列出的环境变量同样必须全部存在（试运行的环境变量为 agent 进程的环境变量加 `BEARBOT_TRIAL=1`）。
-- 其他扩展取得的 API 中 `trial` 为 `true`，`workspace.dir` 照常提供。注册类方法（`onMessage`、`use` 等）照常工作；需要 gateway 的方法中，`post`、`edit`、`delete`、`react`、`history`、`prompt` 返回被拒绝的 Promise，`bindings`、`isAdmin` 直接抛出错误，错误为“试运行中不能调用（<方法名>）”；`diagnostic()` 以 `[bearbot 诊断 <等级>] extension:<扩展名>：<内容>` 的格式写到 stderr，进入检查报告。扩展在启动时有发送消息、启动 HTTP 服务、安排定时任务等对外动作的，先检查 `trial`。
+- 其他扩展取得的 API 中 `trial` 为 `true`，`workspace.dir` 照常提供。注册类方法（`onMessage`、`use` 等）照常工作；需要 gateway 的方法中，`post`、`edit`、`delete`、`react`、`history`、`user`、`avatar`、`prompt` 返回被拒绝的 Promise，`bindings`、`isAdmin` 直接抛出错误，错误为“试运行中不能调用（<方法名>）”；`diagnostic()` 以 `[bearbot 诊断 <等级>] extension:<扩展名>：<内容>` 的格式写到 stderr，进入检查报告。扩展在启动时有发送消息、启动 HTTP 服务、安排定时任务等对外动作的，先检查 `trial`。
 
 ### 7.10 工具调用检查（classifier）
 
@@ -1456,7 +1463,7 @@ gateway 通知 message
 
    | 工具 | 结果 |
    |---|---|
-   | `im_send`、`im_history`、`im_targets` | 放行 |
+   | `im_send`、`im_history`、`im_user`、`im_avatar`、`im_targets` | 放行 |
    | `tool_search` | pi 自己的工具（`sourceInfo.path` 为 `builtin:tool-search`）时放行 |
    | `read`、`grep`、`find`、`ls` | pi 自己的工具（`builtin:<名称>`）时，参数 `path`（缺省为 `.`）按 pi 的规则解析（Unicode 空格、开头的 `@`、`~`、`file://`，相对路径按 cwd），经 `realpath` 后位于工作区目录内时放行，否则拒绝；`realpath` 失败（例如路径不存在）时拒绝 |
    | `write`、`edit`、`bearbot_*` | 拒绝（按名称判断） |
@@ -1550,6 +1557,22 @@ export interface Sender {
   name: string;
   role: "admin" | "member";
   isBot: boolean;
+}
+
+export interface UserProfile {
+  id: string;                 // 身份，与 Sender.id 相同
+  userId: string;             // 平台自己的用户 id
+  fullName: string;
+  userName: string;
+  isBot: boolean;
+  avatarUrl?: string;         // 只有 Slack 给出地址；其他平台的头像用 avatar() 取得
+  email?: string;             // 只有 Slack 给出，且应用有 users:read.email
+}
+
+export interface Avatar {
+  path: string;               // 相对工作区目录，例如 "inbox/2026-11-02/telegram:123-avatar.jpg"
+  mimeType: string;
+  size: number;
 }
 
 export interface Attachment {
@@ -1650,6 +1673,8 @@ export interface BearbotApi {
   delete(ref: string): Promise<void>;
   react(ref: string, emoji: string, remove?: boolean): Promise<void>;
   history(target: string, options?: { limit?: number; before?: string }): Promise<InboundMessage[]>;
+  user(identity: string): Promise<UserProfile | null>;
+  avatar(identity: string): Promise<Avatar | null>;
   bindings(): Binding[];
   isAdmin(identity: string): boolean;
   diagnostic(entry: { level: "error" | "warning"; message: string; detail?: string }): void;
@@ -1672,6 +1697,7 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 - `prompt()` 返回的 Promise 在这一轮派发给 pi（调用 `sendUserMessage`）时完成，不等这一轮结束。`text` 不能为空，`role` 只能是 `admin` 或 `member`，`origin` 给出时不能为空。
 - `post()` 经过出站中间件；被出站中间件丢弃时 Promise 以“出站中间件 <名称> 丢弃了这条消息：<原因>”被拒绝。`files` 为相对工作区目录或绝对的路径。
 - `history()` 返回的每条消息的 `meta.direction` 为 `"in"` 或 `"out"`，`limit` 默认 20，`before` 为 `seq`。
+- `user()` 与 `avatar()` 调用 gateway 的 `user`、`avatar`（第 6.8 节），`identity` 不写成 `<平台>:<用户 id>` 或平台没有启用时 Promise 被拒绝。`avatar()` 的图片保存在工作区 `inbox/` 中，`path` 相对工作区目录。
 - `diagnostic()` 的来源记为 `extension:<name>`；`level` 只能是 `error`、`warning`，`message` 不能为空。
 - `edit`、`delete`、`react` 直接调用 gateway，不经过出站中间件。
 - 试运行中的行为见第 7.9 节。

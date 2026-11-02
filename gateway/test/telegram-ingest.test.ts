@@ -19,6 +19,7 @@ import { createLogger, toChatLogger } from "../src/log.ts";
 import { MessageLog } from "../src/message-log.ts";
 import { Outbound } from "../src/outbound.ts";
 import { Platforms } from "../src/platforms.ts";
+import { UserProfiles } from "../src/profiles.ts";
 import { Repo } from "../src/repo.ts";
 import { createSqliteState } from "../src/state/sqlite-state.ts";
 import { Tokens } from "../src/tokens.ts";
@@ -72,7 +73,8 @@ beforeAll(async () => {
   const agentState = new AgentState(repo);
   agentState.update("running", null);
   const outbound = new Outbound(platforms, log, repo, logger, cfg.workspaceDir);
-  const bridge = new BridgeServer({ cfg, repo, log, outbound, platforms, agentState, logger });
+  const profiles = new UserProfiles({ cfg, platforms, log, logger });
+  const bridge = new BridgeServer({ cfg, repo, log, outbound, platforms, profiles, agentState, logger });
   const ctl = new CtlServer({
     cfg,
     repo,

@@ -234,7 +234,7 @@ async function realDirectory(path: string): Promise<void> {
  * at the final name: an earlier file or a symlink there is replaced without being followed, so an edited message
  * still replaces its earlier file.
  */
-async function saveInboxFile(workspaceDir: string, date: string, fileName: string, data: Buffer): Promise<void> {
+export async function saveInboxFile(workspaceDir: string, date: string, fileName: string, data: Buffer): Promise<void> {
   const inbox = join(realpathSync(workspaceDir), "inbox");
   const dir = join(inbox, date);
   await realDirectory(inbox);

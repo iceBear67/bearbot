@@ -47,6 +47,25 @@ export type WireMessage = {
   direction?: "in" | "out";
 };
 
+/** `user` of gateway.sock (DESIGN 6.8). */
+export type WireUserInfo = {
+  identity: string;
+  userId: string;
+  fullName: string;
+  userName: string;
+  isBot: boolean;
+  avatarUrl?: string;
+  email?: string;
+};
+
+/** `avatar` of gateway.sock (DESIGN 6.8): the image is saved in the workspace inbox. */
+export type WireAvatar = {
+  identity: string;
+  path: string;
+  mimeType: string;
+  size: number;
+};
+
 export type ClassifierRule = { pattern: string; action: "allow" | "deny" };
 export type ClassifierSettings = { enabled: boolean; rules: ClassifierRule[] };
 

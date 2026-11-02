@@ -94,6 +94,23 @@ export class MessageLog {
       .get();
   }
 
+  /** Sender of the newest inbound row of this identity, for platforms without a user lookup. */
+  lastSender(identity: string): InboundPayload["sender"] | undefined {
+    const rows = this.db
+      .select({ payload: messageLog.payload })
+      .from(messageLog)
+      .where(
+        and(
+          eq(messageLog.direction, "in"),
+          sql`json_extract(${messageLog.payload}, '$.sender.id') = ${identity}`,
+        ),
+      )
+      .orderBy(desc(messageLog.seq))
+      .limit(1)
+      .all() as { payload: InboundPayload }[];
+    return rows[0]?.payload.sender;
+  }
+
   /** The newest row of a thread with this QQ quote index. */
   findByQuoteId(threadId: string, quoteId: string): MessageRow | undefined {
     return this.db

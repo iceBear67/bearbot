@@ -14,6 +14,7 @@ import { createLogger, toChatLogger, type PinoLogger } from "./log.ts";
 import { MessageLog } from "./message-log.ts";
 import { Outbound } from "./outbound.ts";
 import { Platforms } from "./platforms.ts";
+import { UserProfiles } from "./profiles.ts";
 import { Repo } from "./repo.ts";
 import { createSqliteState } from "./state/sqlite-state.ts";
 import { endOfLocalDay } from "./time.ts";
@@ -80,7 +81,8 @@ async function main(): Promise<void> {
   const tokens = new Tokens(db);
   const agentState = new AgentState(repo);
   const outbound = new Outbound(platforms, log, repo, logger, cfg.workspaceDir);
-  const bridge = new BridgeServer({ cfg, repo, log, outbound, platforms, agentState, logger });
+  const profiles = new UserProfiles({ cfg, platforms, log, logger });
+  const bridge = new BridgeServer({ cfg, repo, log, outbound, platforms, profiles, agentState, logger });
   const ctl = new CtlServer({
     cfg,
     repo,

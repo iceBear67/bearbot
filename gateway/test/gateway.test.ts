@@ -492,6 +492,23 @@ describe("gateway.sock rules", () => {
     expect((await peer.requestError("post", { target: "console:main", files: [{ path: "nope.txt" }] })).message).toMatch(/无法读取文件/);
   });
 
+  test("user and avatar: a platform that is not enabled and a malformed identity are refused", async () => {
+    const { env } = await start();
+    const { peer } = await connectBridge(env);
+    track(peer);
+    // Only the console is enabled in this environment.
+    expect((await peer.requestError("user", { identity: "telegram:1" })).message).toMatch(/平台 telegram 没有启用/);
+    expect((await peer.requestError("avatar", { identity: "qq:MEMBER" })).message).toMatch(/平台 qq 没有启用/);
+    expect((await peer.requestError("user", { identity: "nocolon" })).code).toBe(-32602);
+    expect((await peer.requestError("user", {})).code).toBe(-32602);
+
+    const user = await peer.request("user", { identity: "console:operator" });
+    expect(user).toEqual({
+      user: { identity: "console:operator", userId: "operator", fullName: "控制台", userName: "operator", isBot: false },
+    });
+    expect(await peer.request("avatar", { identity: "console:operator" })).toEqual({ avatar: null });
+  });
+
   test("files are saved under consoleFilesDir/<date>/<msgid>-<name> and listed in the output", async () => {
     const { env, gw } = await start();
     const { peer } = await connectBridge(env);

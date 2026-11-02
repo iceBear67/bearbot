@@ -75,7 +75,7 @@ export function resolveToolPath(raw: string, cwd: string): string {
 
 export type BuiltinResult = { kind: "allow" | "deny"; reason: string } | { kind: "model" };
 
-const IM_TOOLS = new Set(["im_send", "im_history", "im_targets"]);
+const IM_TOOLS = new Set(["im_send", "im_history", "im_targets", "im_user", "im_avatar"]);
 const PATH_TOOLS = new Set(["read", "grep", "find", "ls"]);
 
 export function isInside(path: string, dir: string): boolean {

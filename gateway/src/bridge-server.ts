@@ -27,6 +27,7 @@ import {
   type Params,
   type RequestHandler,
 } from "./rpc.ts";
+import type { UserProfiles } from "./profiles.ts";
 import { openNoFollow, type OpenedFile } from "./safe-open.ts";
 import { closeServer, listenUnix } from "./sockets.ts";
 import { isoLocal } from "./time.ts";
@@ -51,6 +52,7 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
       log: MessageLog;
       outbound: Outbound;
       platforms: Platforms;
+      profiles: UserProfiles;
       agentState: AgentState;
       logger: PinoLogger;
     },
@@ -180,6 +182,17 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
       // DESIGN 6.2.2: a platform send failure goes back to bearbot-im, which reports it as a diagnostic.
       this.deps.logger.warn({ err: e }, "platform send failed");
       throw new RpcError(APP_ERROR, `发送失败：${errorText(e)}`);
+    }
+  }
+
+  /** A platform lookup for `user` and `avatar` (DESIGN 6.8); failures of the platform answer -32000. */
+  private async lookup<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof RpcError) throw e;
+      this.deps.logger.warn({ err: e }, `${what} lookup failed`);
+      throw new RpcError(APP_ERROR, `${what}失败：${errorText(e)}`);
     }
   }
 
@@ -323,6 +336,18 @@ export class BridgeServer implements Delivery, ChangeNotifier, BtwAsker {
           before,
         );
         return { messages: rows.map((r) => this.wireHistory(r)) };
+      },
+
+      user: async (params, conn) => {
+        this.requireActive(conn);
+        const identity = reqString(paramsObject(params), "identity");
+        return { user: await this.lookup("查询用户资料", () => this.deps.profiles.info(identity)) };
+      },
+
+      avatar: async (params, conn) => {
+        this.requireActive(conn);
+        const identity = reqString(paramsObject(params), "identity");
+        return { avatar: await this.lookup("获取头像", () => this.deps.profiles.avatar(identity)) };
       },
 
       targets: (_params, conn) => {

@@ -1,7 +1,7 @@
 import { SlackAdapter, type SlackAdapterConfig } from "@chat-adapter/slack";
-import { TelegramAdapter, type TelegramAdapterConfig } from "@chat-adapter/telegram";
+import { type TelegramChat, TelegramAdapter, type TelegramAdapterConfig } from "@chat-adapter/telegram";
 import { QQAdapter, type QQSocketModeAdapterConfig } from "@amatsuka/chat-adapter-qq";
-import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import { AuthenticationError, NetworkError, ResourceNotFoundError, ValidationError } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
 import type { Adapter, ChatInstance, Logger as ChatLogger } from "chat";
 import type { GatewayConfig } from "./config.ts";
@@ -9,7 +9,7 @@ import { ConsoleAdapter } from "./console-adapter.ts";
 import { observedLogger, type LogObserver, type PinoLogger } from "./log.ts";
 import { StatusRecorder } from "./platform-status.ts";
 import { platformOf } from "./repo.ts";
-import type { PlatformStatus } from "./types.ts";
+import type { PlatformStatus, ProfileInfo } from "./types.ts";
 
 const FIRST_RETRY_MS = 1000;
 const MAX_RETRY_MS = 60_000;
@@ -84,14 +84,33 @@ function isAbort(e: unknown): boolean {
   return e instanceof Error && e.name === "AbortError";
 }
 
+/** ChatFullInfo of the Bot API 7.3 split: `Chat` plus the fields getChat returns (photo, bio, ...). */
+type TelegramChatFullInfo = TelegramChat & {
+  photo?: { small_file_id: string; big_file_id: string };
+  is_bot?: boolean;
+};
+
+/** `${apiBaseUrl}/file/bot<token>/<file_path>` (Bot API, getFile); the token must not leave the gateway. */
+async function fetchTelegramFile(apiBaseUrl: string, token: string, filePath: string, timeoutMs: number): Promise<Buffer> {
+  const fileUrl = `${apiBaseUrl}/file/bot${token}/${filePath}`;
+  const response = await fetch(fileUrl, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    throw new NetworkError("telegram", `Failed to download Telegram file: ${response.status}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export class GatewayTelegramAdapter extends TelegramAdapter {
   readonly status: StatusRecorder;
   private readonly loop: ConnectLoop;
+  /** Upper bound of one avatar download; the gateway config sets the same value for attachments. */
+  private readonly downloadTimeoutMs: number;
 
-  constructor(config: TelegramAdapterConfig, status: StatusRecorder, logger: PinoLogger) {
+  constructor(config: TelegramAdapterConfig, status: StatusRecorder, logger: PinoLogger, downloadTimeoutMs: number) {
     super(config);
     this.status = status;
     this.loop = new ConnectLoop(status, logger);
+    this.downloadTimeoutMs = downloadTimeoutMs;
   }
 
   override async initialize(chat: ChatInstance): Promise<void> {
@@ -126,6 +145,71 @@ export class GatewayTelegramAdapter extends TelegramAdapter {
   /** drain: stop polling (contracts 4.1). */
   async stopReceiving(): Promise<void> {
     await this.loop.stop(() => this.stopPolling());
+  }
+
+  /** getChat of DESIGN 6.2.1: `photo` is in ChatFullInfo and only for a chat the bot knows. */
+  private async fullChat(chatId: string): Promise<TelegramChatFullInfo> {
+    return this.telegramFetch<TelegramChatFullInfo>("getChat", { chat_id: chatId });
+  }
+
+  /**
+   * Profile of a user or of a group posting as a chat (DESIGN 6.2.1). `getChat` gives no `is_bot`, so `false` means
+   * "the platform did not say"; querying works only for chats the bot has seen. The avatar is left out: the file
+   * URL carries the bot token, so `avatar()` downloads the image instead.
+   */
+  async profileInfo(chatId: string): Promise<ProfileInfo> {
+    const chat = await this.fullChat(chatId);
+    const personal = [chat.first_name, chat.last_name].filter(Boolean).join(" ");
+    return {
+      userId: String(chat.id),
+      fullName: chat.title ?? (personal !== "" ? personal : String(chat.id)),
+      userName: chat.username ?? (personal !== "" ? personal : String(chat.id)),
+      isBot: (chat as { is_bot?: boolean }).is_bot === true,
+    };
+  }
+
+  /** The largest profile photo of the user, or null when getUserProfilePhotos returns none or is refused. */
+  async profilePhoto(userId: string): Promise<Buffer | null> {
+    if (!/^\d+$/.test(userId)) {
+      return null;
+    }
+    let result: { photos?: { file_id: string }[][] };
+    try {
+      result = await this.telegramFetch<{ photos?: { file_id: string }[][] }>("getUserProfilePhotos", {
+        user_id: userId,
+        limit: 1,
+      });
+    } catch (e) {
+      // A user who never talked to the bot and shares no group: "Bad Request: user not found".
+      if (e instanceof ValidationError) {
+        return null;
+      }
+      throw e;
+    }
+    const photo = result.photos?.[0]?.at(-1);
+    return photo === undefined ? null : this.downloadFileBytes(photo.file_id);
+  }
+
+  /**
+   * The big profile photo of a chat. For a private chat this is the same user as the chat; for telegram:chat:<id>
+   * it is the group or channel photo.
+   */
+  async chatPhoto(chatId: string): Promise<Buffer | null> {
+    const chat = await this.fullChat(chatId);
+    return chat.photo === undefined ? null : this.downloadFileBytes(chat.photo.big_file_id);
+  }
+
+  /**
+   * Bytes of a Telegram file, by the same two steps as the library's own `downloadFile`: getFile, then
+   * `https://api.telegram.org/file/bot<token>/<file_path>` (Bot API).
+   */
+  async downloadFileBytes(fileId: string): Promise<Buffer> {
+    const file = await this.telegramFetch<{ file_path?: string }>("getFile", { file_id: fileId });
+    if (file.file_path === undefined) {
+      throw new ResourceNotFoundError("telegram", "file");
+    }
+    const token = this.staticBotToken ?? (await this.resolveBotToken());
+    return fetchTelegramFile(this.apiBaseUrl, token, file.file_path, this.downloadTimeoutMs);
   }
 }
 
@@ -315,6 +399,7 @@ export class Platforms {
         },
         status,
         logger,
+        cfg.attachmentTimeoutMs,
       );
       this.adapters.telegram = this.telegram;
     }
