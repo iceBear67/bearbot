@@ -71,6 +71,7 @@ func TestDefaults(t *testing.T) {
 		{"platforms.telegram.enabled", cfg.Platforms.Telegram.Enabled, false},
 		{"platforms.qq.enabled", cfg.Platforms.QQ.Enabled, false},
 		{"platforms.qq.sandbox", cfg.Platforms.QQ.Sandbox, false},
+		{"platforms.slack.enabled", cfg.Platforms.Slack.Enabled, false},
 		{"platforms.wecom.enabled", cfg.Platforms.WeCom.Enabled, false},
 		{"platforms.console.enabled", cfg.Platforms.Console.Enabled, true},
 		{"bridge.observe_limit", cfg.Bridge.ObserveLimit, 30},
@@ -152,6 +153,11 @@ enabled = false
 app_id = "${QQ_BOT_APP_ID}"
 client_secret = "${QQ_BOT_CLIENT_SECRET}"
 sandbox = false
+
+[platforms.slack]
+enabled = false
+bot_token = "${SLACK_BOT_TOKEN}"
+app_token = "${SLACK_APP_TOKEN}"
 
 [platforms.wecom]
 enabled = false
@@ -282,7 +288,8 @@ func TestErrors(t *testing.T) {
 	}{
 		{"unknown key", minimal + "[agent]\nstart_timout = \"1s\"\n", []string{"未知的配置项", "agent.start_timout", "第 5 行"}},
 		{"unknown section", minimal + "[nonsense]\na = 1\n", []string{"未知的配置项", "nonsense"}},
-		{"unknown platform", minimal + "[platforms.slack]\nenabled = true\n", []string{"未知的配置项", "platforms.slack"}},
+		{"unknown platform", minimal + "[platforms.discord]\nenabled = true\n", []string{"未知的配置项", "platforms.discord"}},
+		{"slack missing app token", minimal + "[platforms.slack]\nenabled = true\nbot_token = \"xoxb-x\"\n", []string{"[platforms.slack] app_token", "不能为空"}},
 		{"syntax", minimal + "[agent\n", []string{"第 4 行"}},
 		{"type mismatch", minimal + "[agent]\ncrash_limit = \"3\"\n", []string{"第 5 行"}},
 		{"missing var", minimal + "[agent.env]\nKEY = \"${BEARBOT_TEST_SURELY_MISSING_VAR}\"\n", []string{"[agent.env] KEY", "BEARBOT_TEST_SURELY_MISSING_VAR", "不存在"}},
@@ -372,6 +379,33 @@ markdown = false
 }
 
 // TestListenForms: the forms the gateway accepts for [gateway.http] listen, and millisecond durations.
+func TestSlackEnabled(t *testing.T) {
+	t.Setenv("BB_SLACK_BOT", "xoxb-bot")
+	t.Setenv("BB_SLACK_APP", "xapp-app")
+	cfg := mustLoad(t, minimal+`
+[platforms.slack]
+enabled = true
+bot_token = "${BB_SLACK_BOT}"
+app_token = "${BB_SLACK_APP}"
+`)
+	if !cfg.Platforms.Slack.Enabled || cfg.Platforms.Slack.BotToken != "xoxb-bot" || cfg.Platforms.Slack.AppToken != "xapp-app" {
+		t.Fatalf("slack = %+v", cfg.Platforms.Slack)
+	}
+}
+
+// TestDisabledSlackNotExpanded: a disabled [platforms.slack] is not substituted and its tokens are dropped.
+func TestDisabledSlackNotExpanded(t *testing.T) {
+	cfg := mustLoad(t, minimal+`
+[platforms.slack]
+enabled = false
+bot_token = "${BEARBOT_TEST_SURELY_MISSING_VAR}"
+app_token = "${BEARBOT_TEST_SURELY_MISSING_VAR}"
+`)
+	if cfg.Platforms.Slack.BotToken != "" || cfg.Platforms.Slack.AppToken != "" {
+		t.Errorf("slack = %+v", cfg.Platforms.Slack)
+	}
+}
+
 func TestListenForms(t *testing.T) {
 	for _, listen := range []string{"8080", ":8080", "127.0.0.1:8080", "[::1]:8443", "0.0.0.0:65535"} {
 		cfg := mustLoad(t, minimal+"[gateway.http]\nlisten = \""+listen+"\"\n")

@@ -90,6 +90,9 @@ func TestGatewayFile(t *testing.T) {
 	c := testenv.DefaultConfig()
 	c.TelegramEnabled = true
 	c.TelegramBotToken = "123:abc"
+	c.SlackEnabled = true
+	c.SlackBotToken = "xoxb-bot"
+	c.SlackAppToken = "xapp-app"
 	c.TokenTTL = "5m"
 	e.WriteConfig(t, c)
 	cfg, err := config.Load(e.ConfigPath)
@@ -128,8 +131,11 @@ func TestGatewayFile(t *testing.T) {
 		"maintenanceNotice":        "bearbot 正在修复，暂时无法回复。",
 		"classifierEnabledDefault": true,
 		"http":                     map[string]any{"listen": ""},
-		"platforms":                map[string]any{"telegram": map[string]any{"botToken": "123:abc"}},
-		"console":                  map[string]any{"inputFd": float64(3), "outputFd": float64(4)},
+		"platforms": map[string]any{
+			"telegram": map[string]any{"botToken": "123:abc"},
+			"slack":    map[string]any{"botToken": "xoxb-bot", "appToken": "xapp-app"},
+		},
+		"console": map[string]any{"inputFd": float64(3), "outputFd": float64(4)},
 	}
 	gotJSON, _ := json.Marshal(got)
 	wantJSON, _ := json.Marshal(want)

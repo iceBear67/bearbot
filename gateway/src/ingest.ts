@@ -16,6 +16,7 @@ import { safeFileName, type ConsoleRaw } from "./console-adapter.ts";
 import { errorText, type PinoLogger } from "./log.ts";
 import type { MessageLog } from "./message-log.ts";
 import type { Outbound } from "./outbound.ts";
+import type { GatewaySlackAdapter } from "./platforms.ts";
 import { CONSOLE_CHANNEL_NAME, CONSOLE_OPERATOR, type BindingRow, type Repo } from "./repo.ts";
 import { openNoFollow } from "./safe-open.ts";
 import { isoLocal, localDate } from "./time.ts";
@@ -87,6 +88,23 @@ function stripQQMentions(text: string): string {
   return out;
 }
 
+/**
+ * Leading mentions of a Slack message, removed before token and /bb detection the way Slack marks them:
+ * `<@U123>` (optionally `<@U123|name>`) and `<!channel>`-style special mentions (DESIGN 6.2.3).
+ */
+function stripSlackMentions(text: string): string {
+  let out = text.trimStart();
+  let previous: string;
+  do {
+    previous = out;
+    out = out.replace(/^<@[^>\s|]+(?:\|[^>]*)?>\s*/u, "").replace(/^<![^>\s]+>\s*/u, "").trimStart();
+  } while (out !== previous);
+  return out;
+}
+
+/** The text part of a Slack message event; `app_mention` and `message` events both carry `text`. */
+type SlackMessage = { text?: string };
+
 /** Untouched message text for token and /bb detection (chat-platforms.md 5.1). */
 function rawTextOf(platform: string, message: Message): string {
   if (platform === "telegram") {
@@ -97,6 +115,10 @@ function rawTextOf(platform: string, message: Message): string {
     const raw = message.raw as QQRawMessage;
     const content = raw.content ?? "";
     return raw._chat_is_mention === true ? stripQQMentions(content) : content;
+  }
+  if (platform === "slack") {
+    // A leading @bot before "/bb" or a token is not part of the command.
+    return stripSlackMentions((message.raw as SlackMessage).text ?? "");
   }
   return message.text;
 }
@@ -252,6 +274,23 @@ export class Ingest {
   }
 
   /**
+   * Channel name for the message record and the binding (DESIGN 6.2.3). Slack message events carry no name; the
+   * name of a channel seen for the first time is looked up in the background and used from the next message on,
+   * so ingestion never waits for the Web API.
+   */
+  private channelNameFor(adapter: Adapter, threadId: string, raw: unknown): string | null {
+    if (adapter.name === "slack") {
+      const slack = adapter as GatewaySlackAdapter;
+      const name = slack.cachedChannelName(threadId);
+      if (name === null) {
+        void slack.refreshChannelName(threadId);
+      }
+      return name;
+    }
+    return channelNameOf(adapter.name, raw);
+  }
+
+  /**
    * replyTo of an inbound message. A QQ quote gives only the quote index and text of the quoted message, so the
    * message id and sender come from the message_log row with that index; without such a row they are empty (DESIGN 6.2.2).
    */
@@ -303,7 +342,7 @@ export class Ingest {
         isDM: thread.isDM,
         sender: { identity, name: sender.name },
         args: (bb[2] ?? "").trim(),
-        channelName: channelNameOf(platform, message.raw),
+        channelName: this.channelNameFor(adapter, thread.id, message.raw),
         replyTarget: replyTargetOf(platform, message.raw, message.replyTo),
       });
       return;
@@ -386,7 +425,7 @@ export class Ingest {
       kind: "message",
       id: message.id,
       platform,
-      channel: this.channelInfo(binding, thread.isDM, channelNameOf(platform, message.raw)),
+      channel: this.channelInfo(binding, thread.isDM, this.channelNameFor(adapter, thread.id, message.raw)),
       thread: thread.id,
       sender: { id: identity, name: sender.name, role, isBot: sender.isBot },
       time: isoLocal(message.metadata.dateSent),
@@ -427,7 +466,7 @@ export class Ingest {
         isDM,
         sender: { identity, name: sender.name },
         args,
-        channelName: channelNameOf(platform, event.raw),
+        channelName: this.channelNameFor(adapter, threadId, event.raw),
         replyTarget: replyTargetOf(platform, event.raw, parsed?.replyTo),
       });
       return;
@@ -442,7 +481,7 @@ export class Ingest {
       kind: "command",
       id: parsed?.id ?? event.triggerId ?? "",
       platform,
-      channel: this.channelInfo(binding, isDM, channelNameOf(platform, event.raw)),
+      channel: this.channelInfo(binding, isDM, this.channelNameFor(adapter, threadId, event.raw)),
       thread: threadId,
       sender: { id: identity, name: sender.name, role: this.roleOf(identity), isBot: sender.isBot },
       time: isoLocal(parsed ? parsed.metadata.dateSent : new Date()),

@@ -1,6 +1,7 @@
 import { closeSync, constants, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, resolve, sep } from "node:path";
 import { QQAdapter } from "@amatsuka/chat-adapter-qq";
+import { SlackAdapter } from "@chat-adapter/slack";
 import { TelegramAdapter, TelegramFormatConverter } from "@chat-adapter/telegram";
 import type { Adapter, AdapterPostableMessage, CardElement, FileUpload, RawMessage } from "chat";
 import mime from "mime";
@@ -14,6 +15,9 @@ import type { AttachmentType, OutboundPayload, WireAttachment } from "./types.ts
 export const TELEGRAM_TEXT_LIMIT = 4096;
 export const TELEGRAM_CAPTION_LIMIT = 1024;
 const TELEGRAM_MEDIA_GROUP_MAX = 10;
+/** Slack `markdown_text` and `text` field limits (DESIGN 6.2.3). */
+export const SLACK_MARKDOWN_LIMIT = 12_000;
+export const SLACK_TEXT_LIMIT = 40_000;
 
 /** An error whose message is shown to the caller (bearbot-im or the chat user). */
 export class OutboundError extends Error {
@@ -262,6 +266,24 @@ export class Outbound {
     return parts;
   }
 
+  /**
+   * Slack measures `markdown_text` and `text` in characters and rejects a longer field, so bearbot-im's markdown is
+   * split at the markdown limit and the gateway's plain text at the plain limit. Files go with the first segment.
+   */
+  private slackParts(text: string, plain: boolean, files: LoadedFile[]): Part[] {
+    const make = (t: string, f: LoadedFile[]): Part => ({
+      message: plain ? { raw: t, files: f.map(toUpload) } : { markdown: t, files: f.map(toUpload) },
+      text: t,
+      files: f,
+    });
+    const limit = plain ? SLACK_TEXT_LIMIT : SLACK_MARKDOWN_LIMIT;
+    const segments = splitText(text, limit, (s) => s.length, !plain);
+    if (segments.length === 0) {
+      return files.length > 0 ? [make("", files)] : [];
+    }
+    return segments.map((t, i) => make(t, i === 0 ? files : []));
+  }
+
   private parts(adapter: Adapter, content: PostContent): Part[] {
     const plain = content.markdown === undefined;
     const text = content.markdown ?? content.text ?? "";
@@ -269,6 +291,8 @@ export class Outbound {
     let parts: Part[];
     if (adapter.name === "telegram") {
       parts = this.telegramParts(text, plain, files);
+    } else if (adapter.name === "slack") {
+      parts = this.slackParts(text, plain, files);
     } else if (text !== "" || files.length > 0) {
       const message: AdapterPostableMessage =
         plain || qqPlain(adapter) ? { raw: text, files: files.map(toUpload) } : { markdown: text, files: files.map(toUpload) };
@@ -312,11 +336,22 @@ export class Outbound {
           throw new OutboundError("QQ 不能引用回复卡片消息");
         }
       }
+      // Slack has no quote parameter; a reply goes into the thread of the quoted message, so every part of this send
+      // uses that thread (DESIGN 6.2.3, 6.8).
+      let slackTarget: string | null = null;
+      if (content.replyTo && adapter instanceof SlackAdapter) {
+        if (!this.log.findMessage(target, content.replyTo)) {
+          throw new OutboundError(`找不到要回复的消息：${content.replyTo}`);
+        }
+        slackTarget = adapter.encodeThreadId({ channel: adapter.decodeThreadId(target).channel, threadTs: content.replyTo });
+      }
       let first: string | null = null;
       for (const [i, part] of parts.entries()) {
         let sent: RawMessage<unknown>;
         if (i === 0 && content.replyTo && adapter instanceof TelegramAdapter) {
           sent = await adapter.postMessage(target, part.message, content.replyTo);
+        } else if (slackTarget !== null) {
+          sent = await adapter.postMessage(slackTarget, part.message);
         } else if (i === 0 && quote !== null && adapter instanceof QQAdapter) {
           // Like Telegram's allow_sending_without_reply: a quoted message QQ no longer finds does not stop the send.
           // The quoting message is plain text: QQ clients show the text of a quoting markdown message twice.

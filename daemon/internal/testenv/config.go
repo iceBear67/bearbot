@@ -45,6 +45,9 @@ type Config struct {
 	QQClientSecret   string
 	QQSandbox        bool
 	QQMarkdown       bool
+	SlackEnabled     bool
+	SlackBotToken    string
+	SlackAppToken    string
 	ConsoleEnabled   bool
 
 	ObserveLimit       int
@@ -184,6 +187,11 @@ app_id = {{q .QQAppID}}
 client_secret = {{q .QQClientSecret}}
 sandbox = {{.QQSandbox}}
 markdown = {{.QQMarkdown}}
+
+[platforms.slack]
+enabled = {{.SlackEnabled}}
+bot_token = {{q .SlackBotToken}}
+app_token = {{q .SlackAppToken}}
 
 [platforms.wecom]
 enabled = false

@@ -44,6 +44,11 @@ client_secret = "${QQ_BOT_CLIENT_SECRET}"
 sandbox = false                       # 使用 QQ 的沙箱环境
 markdown = true                       # 文本以 QQ 的 markdown 消息发送（需要平台开通的权限）；false 时以纯文本发送
 
+[platforms.slack]
+enabled = false
+bot_token = "${SLACK_BOT_TOKEN}"      # Slack 应用的机器人令牌（xoxb-…）；需要 message.*、app_mentions:read、reactions:read/write、users:read、files:read 等权限
+app_token = "${SLACK_APP_TOKEN}"      # Socket Mode 的应用级令牌（xapp-…），需要 connections:write 权限；不需要公网地址
+
 [platforms.wecom]
 enabled = false                 # 企业微信适配器尚未实现，设为 true 时 daemon 拒绝启动
 bot_id = "${WECOM_BOT_ID}"

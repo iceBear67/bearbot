@@ -76,4 +76,25 @@ describe("a failed first connection does not stop the gateway (contracts 9.4)", 
     gw.type("ok");
     await peer.waitMessage((m) => m.text === "ok");
   });
+
+  // The Web API address points at a closed local port, so the app token check and the socket connection both fail.
+  test("slack with made-up tokens: recorded as error and retried, console keeps working", async () => {
+    const env = makeEnv({ platforms: { slack: { botToken: "xoxb-not-a-real-token", appToken: "xapp-not-a-real-token" } } });
+    cleanups.push(() => removeEnv(env));
+    const gw = new GatewayProcess(env, { env: { SLACK_API_URL: "http://127.0.0.1:9/" } });
+    cleanups.push(() => gw.kill());
+    await gw.ready();
+    const ctl = await connectDaemon(env);
+    cleanups.push(() => void ctl.close());
+    const slack = await waitPlatform(ctl, "slack", (p) => p.state === "error", 30_000);
+    expect(slack.lastError).toEqual(expect.any(String));
+    const { peer, hello } = await connectBridge(env);
+    cleanups.push(() => void peer.close());
+    expect(Object.keys(hello.self).sort()).toEqual(["console", "slack"]);
+
+    // A failed first connection fails fast and is retried, so drain and SIGTERM finish instead of waiting for it.
+    gw.child.kill("SIGTERM");
+    await gw.exited;
+    expect(gw.exitCode).toBe(0);
+  });
 });

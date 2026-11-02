@@ -89,6 +89,11 @@ client_secret = ""
 sandbox = false
 markdown = true
 
+[platforms.slack]
+enabled = false
+bot_token = ""
+app_token = ""
+
 [platforms.wecom]
 enabled = false
 

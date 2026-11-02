@@ -116,6 +116,9 @@ async function main(): Promise<void> {
   bot.onNewMention((thread, message) => ingest.message(thread, message));
   bot.onNewMessage(/[\s\S]*/, (thread, message) => ingest.message(thread, message));
   bot.onSlashCommand((event) => ingest.command(event));
+  // Slack delivers message edits through processMessageUpdated (DESIGN 6.2.3); the parsed message carries
+  // `metadata.edited`, and `message()` records it with `edited: true` and never triggers.
+  bot.onMessageUpdated((thread, message) => ingest.message(thread, message));
   bot.onAction((event) => ingest.action(event));
   bot.onReaction((event) => ingest.reaction(event));
   await bot.initialize();

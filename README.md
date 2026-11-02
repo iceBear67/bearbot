@@ -1,6 +1,6 @@
 # bearbot
 
-bearbot 是一个能自我演进的 IM 机器人。它把 [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 接入 Telegram 和 QQ 官方机器人，让 pi 在群聊和私聊中工作。管理员在聊天中提出需求，agent 编写 pi 扩展、技能、MCP 配置给自己增加功能；改动经过检查后生效，改坏了由独立的 recovery agent 诊断修复，修复不了时进入维护状态，管理员可以从聊天或命令行回滚。
+bearbot 是一个能自我演进的 IM 机器人。它把 [pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 接入 Telegram、QQ 官方机器人和 Slack，让 pi 在群聊和私聊中工作。管理员在聊天中提出需求，agent 编写 pi 扩展、技能、MCP 配置给自己增加功能；改动经过检查后生效，改坏了由独立的 recovery agent 诊断修复，修复不了时进入维护状态，管理员可以从聊天或命令行回滚。
 
 一个容器运行一个 agent，使用一个工作区。需要多个互相独立的 bot 时，用不同的容器名与挂载目录运行多个容器。
 
@@ -91,6 +91,10 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ_example
 # QQ 官方机器人凭据（从 QQ 开放平台获取）
 QQ_BOT_APP_ID=102030405
 QQ_BOT_CLIENT_SECRET=abcdef1234567890abcdef1234567890
+
+# Slack 应用的机器人令牌（xoxb-…，OAuth & Permissions 页面）与 Socket Mode 应用级令牌（xapp-…，需要 connections:write）
+SLACK_BOT_TOKEN=xoxb-example
+SLACK_APP_TOKEN=xapp-example
 ```
 
 ---
@@ -198,7 +202,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 
 ### 5. 成为管理员并绑定聊天频道
 
-服务启动后，Gateway 会连接配置的 IM 平台（Telegram / QQ）。Bearbot 采用基于令牌的管理员授权和显式频道绑定机制：
+服务启动后，Gateway 会连接配置的 IM 平台（Telegram / QQ / Slack）。Bearbot 采用基于令牌的管理员授权和显式频道绑定机制：
 
 1. **生成一次性管理员令牌**：
    ```sh
@@ -207,7 +211,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
    终端会输出形如 `tok-xxxxxxxxxxxxxxxx` 的令牌（默认 10 分钟内有效）。
 
 2. **领取管理员身份**：
-   - 打开 Telegram 或 QQ，在私聊中将令牌直接发送给机器人（私聊最可靠）。
+   - 打开 Telegram、QQ 或 Slack，在私聊中将令牌直接发送给机器人（私聊最可靠）。
    - 机器人核销成功后会回复：`已成为 bearbot 管理员`。之后所有的系统通知（故障报告、修复通知、回滚提醒）都会发送到该聊天。
 
 3. **绑定工作频道**：
@@ -224,6 +228,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 > [!TIP]
 > - **Telegram 权限提示**：Telegram 群组中机器人要接收非 `/` 开头的消息，必须在 [@BotFather](https://t.me/BotFather) 中通过 `/setprivacy` 将 Privacy mode 设为 `Disable`，或者直接将机器人提升为群管理员。
 > - **QQ 平台提示**：QQ 群与 QQ 单聊在官方平台下用户的 OpenID 不同（属于两个身份）。如需在两处都作为管理员，可分别使用 `admin token` 领取，或在已认证的管理端通过 `/bb admin add <身份ID>` 添加。
+> - **Slack 平台提示**：使用 Socket Mode，不需要公网地址。应用的 Event Subscriptions 需要订阅 `app_mention`、`message.channels`、`message.groups`、`message.im`、`message.mpim`、`reaction_added`、`reaction_removed`，并开启 Interactivity；斜杠命令可以不注册，`/bb` 与 `!bb` 直接作为普通消息发送即可。频道里要收到普通消息，机器人需要被加入该频道；`/bb attach --trigger all` 时机器人的自己消息不会触发回复。
 
 ---
 

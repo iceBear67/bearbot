@@ -24,7 +24,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | 通过 daemon 生成一次性管理员令牌，在 IM 中发送后成为管理员 | 第 6.6 节 |
 | 管理员用 IM 命令管理 bot，把当前聊天绑定到 bot；平台不支持命令时自己解析 | 第 6.7 节、第 6.2.3 节 |
 | 交付 Dockerfile，容器有 profile、工作区、配置文件三个挂载点 | 第 13 节 |
-| 本地调试时用 `docker attach` 连接容器，或在终端中前台运行 bearbotd，把终端当作一个聊天平台与运行中的 agent 对话，终端用户视为管理员；只需要简单的行输入界面 | 第 5.13、6.2.4 节 |
+| 本地调试时用 `docker attach` 连接容器，或在终端中前台运行 bearbotd，把终端当作一个聊天平台与运行中的 agent 对话，终端用户视为管理员；只需要简单的行输入界面 | 第 5.13、6.2.5 节 |
 
 ### 0.2 整体结构
 
@@ -43,14 +43,14 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 - **自我改造**（第 9 节）：管理员提出需求 → agent 编写扩展 → `bearbot_check`（位置检查、类型检查、试运行启动）→ `bearbot_apply`（保存快照，本轮结束后按原会话 id 重启 agent 进程）→ 自动发起确认回合，agent 验证并向用户汇报 → 观察期。
 - **故障**（第 5.4、5.7、10 节）：agent 进程启动失败或反复退出 → recovery 修复 → 检查并重新启动 → 观察期结束后把修复说明交给 agent；修复失败则进入维护状态，在 IM 中通知管理员，管理员可以重新修复、回滚或恢复运行。
 - **管理员回滚**（第 5.12、9.6 节）：管理员发送 `/bb rollback` → gateway 交给 daemon（不经过 agent 进程）→ 中止当前回合、停止进程、恢复文件 → 启动并进入观察期 → agent 收到回滚通知，暂停相关任务，等待管理员指示。
-- **控制台**（第 5.13、6.2.4 节）：bearbotd 启动 gateway 时把自己的标准输入输出交给它 → 终端 → gateway 的 `console` 适配器（发送者为内置管理员）→ 之后与消息流程相同 → 发往控制台的回复由适配器直接写到终端。
+- **控制台**（第 5.13、6.2.5 节）：bearbotd 启动 gateway 时把自己的标准输入输出交给它 → 终端 → gateway 的 `console` 适配器（发送者为内置管理员）→ 之后与消息流程相同 → 发往控制台的回复由适配器直接写到终端。
 
 ### 0.3 实现约束
 
 - 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.2.0、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
 - 出错时就地报错退出，不做静默的降级处理。
 - 测试全部使用真实组件，不使用 mock（第 16 节）。
-- 仓库中已有实现：Go 编写的 `bearbotd`（`daemon/`）、gateway（`gateway/`）、`bearbot-im` 扩展、bearbot SDK、recovery 扩展、三个技能、recovery profile 模板、示例配置与 Dockerfile（目录见第 14 节）。企业微信适配器（第 6.2.3 节，`packages/chat-adapter-wecom`）还没有实现：配置校验拒绝 `[platforms.wecom] enabled = true`，gateway 中也没有引用它的代码。
+- 仓库中已有实现：Go 编写的 `bearbotd`（`daemon/`）、gateway（`gateway/`）、`bearbot-im` 扩展、bearbot SDK、recovery 扩展、三个技能、recovery profile 模板、示例配置与 Dockerfile（目录见第 14 节）。企业微信适配器（第 6.2.4 节，`packages/chat-adapter-wecom`）还没有实现：配置校验拒绝 `[platforms.wecom] enabled = true`，gateway 中也没有引用它的代码。
 - `DESIGN_MULTI_WORKSPACE.md` 是支持多个工作区的上一版设计，`DESIGN_STALE.md` 是另一套已放弃的方案（nonebot + pi-acp），两者都不作为实现依据。
 
 ### 0.4 尚未在真实服务上核实的事项
@@ -59,6 +59,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 - 企业微信智能机器人被动回复的有效时长，`sendMessage` 的 `SendMsgBody` 是否支持 markdown 消息。
 - Telegram 群关闭隐私模式后的实际行为。
+- Slack 的 Socket Mode 连接与 `auth.test`、`conversations.info`、`conversations.replies` 的实际行为，以及 Slack 应用所需的权限清单；自动测试只验证连接失败与事件处理。
 
 ## 1. 名词
 
@@ -84,7 +85,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | 故障 | agent 进程无法启动、反复退出或在观察期内退出时，daemon 建立的处理记录 |
 | recovery | 使用独立、只读的 recovery profile 启动的 pi，负责诊断和修复故障 |
 | 维护状态 | recovery 也无法修复，或者回滚出错时 bot 进入的状态，等待管理员处理 |
-| 控制台 | gateway 的 `console` 适配器在 bearbotd 交给它的标准输入输出上提供的聊天界面，频道为 `console:main`，终端用户的身份为内置管理员 `console:operator`（第 5.13、6.2.4 节） |
+| 控制台 | gateway 的 `console` 适配器在 bearbotd 交给它的标准输入输出上提供的聊天界面，频道为 `console:main`，终端用户的身份为内置管理员 `console:operator`（第 5.13、6.2.5 节） |
 | 重启生效路径 | 修改后要重启 agent 进程才生效的文件：`workspace/.pi/**`、`profile/agent/settings.json`、`profile/agent/models.json`。回滚与快照恢复只恢复这些路径 |
 
 ## 2. 调研结论
@@ -130,18 +131,18 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 | 事实 | 对设计的作用 |
 |---|---|
-| `new Chat({userName, adapters, state, concurrency, logger, ...})`；`adapters` 的键名必须等于会话串 id 的前缀（`bot.thread(id)` 按 `id.split(":")[0]` 查找） | 键名固定为 `telegram`、`qq`、`console`（以及计划中的 `wecom`） |
+| `new Chat({userName, adapters, state, concurrency, logger, ...})`；`adapters` 的键名必须等于会话串 id 的前缀（`bot.thread(id)` 按 `id.split(":")[0]` 查找） | 键名固定为 `telegram`、`qq`、`slack`、`console`（以及计划中的 `wecom`） |
 | `logger` 要求 `child(prefix: string)` 与 `(message, ...args)` 形式的日志方法。直接传入 pino 实例时 tsc 报错，运行时 `child("telegram")` 被 pino 当作字段输出成 `"0":"t","1":"e",…`，结构化参数（包括错误对象）全部丢失（实测） | gateway 传入一个把这两种调用转换给 pino 的包装函数（第 6.1 节） |
-| 处理器：`onDirectMessage`（所有私聊）、`onNewMention`（未订阅会话串中的提及）、`onSubscribedMessage`、`onNewMessage(pattern)`（未订阅、非私聊、未提及；`/[\s\S]*/` 也匹配只有附件的空文本消息）、`onSlashCommand`、`onAction`、`onReaction` | 不使用订阅；用 `onDirectMessage` + `onNewMention` + `onNewMessage(/[\s\S]*/)` 收到所有消息 |
+| 处理器：`onDirectMessage`（所有私聊）、`onNewMention`（未订阅会话串中的提及）、`onSubscribedMessage`、`onNewMessage(pattern)`（未订阅、非私聊、未提及；`/[\s\S]*/` 也匹配只有附件的空文本消息）、`onSlashCommand`、`onAction`、`onReaction` | 不使用订阅；用 `onDirectMessage` + `onNewMention` + `onNewMessage(/[\s\S]*/)` 收到所有消息，用 `onMessageUpdated` 收到编辑（Slack，第 6.2.3 节） |
 | 消息是否是私聊由适配器的 `isDM(threadId)` 决定（类型中为可选方法）；适配器没有实现它时，私聊消息进入 `onNewMessage`，`thread.isDM` 为 false（实测） | 控制台适配器的 `isDM` 总是返回 true；计划中的企业微信适配器按会话串 id 实现它 |
 | `SlashCommandEvent` 中没有会话串 id 与消息 id：`event.channel.id` 是会话串 id（Telegram 论坛话题带 `:<topicId>`），`event.channel.isDM` 总是 false，消息 id 只在 `event.raw` 中 | gateway 用 `event.channel.id` 作为会话串，用适配器的 `channelIdFromThreadId()` 取得频道、`isDM?.()` 判断私聊、`parseMessage(event.raw)` 取得消息 id 与附件（第 6.5 节） |
 | 并发策略 `drop`（默认）/`queue`/`debounce`/`burst`/`concurrent`；`queue` 只派发最新一条，之前排队的消息放在 `context.skipped` 中交给处理器，排队超过 90 秒的被丢弃 | 使用 `concurrent`，排队、合并、防抖都在 `bearbot-im` 中完成；这个策略下处理消息时不加锁 |
 | Telegram 轮询模式下，下一次 `getUpdates` 要等当前批次所有处理器执行完（实测） | 处理器只写入数据库并返回，其余工作异步进行 |
 | 没有中间件机制（`Chat` 上没有 `use`、拦截器） | 中间件由 `bearbot-im` 提供 |
 | `StateAdapter` 接口：`connect`、`disconnect`、`subscribe`、`unsubscribe`、`isSubscribed`、`acquireLock`、`releaseLock`、`extendLock`、`forceReleaseLock`、`get`、`set`、`setIfNotExists`、`delete`、`appendToList`、`getList`、`enqueue`、`dequeue`、`queueDepth`。官方实现只有内存、Redis、Postgres；内存实现中值与列表共用一个键空间，过期的条目在读取时按不存在处理，只在被访问时清除，去重键会持续累积 | 编写基于 SQLite 的 `StateAdapter`，与 gateway 数据库共用一个文件，读取时同样把过期的行当作不存在（第 6.3 节） |
-| state 中保存的内容：QQ 与控制台的消息去重键 `dedupe:<适配器>:<消息id>`（10 分钟过期，键中不含会话串 id）；Telegram 轮询不写去重键，轮询 offset 只在有处理失败、等待重试的更新时写入 state，其余由下一次 `getUpdates` 向 Telegram 确认；正在执行处理器的那一批更新在 `stopPolling()` 之后没有确认，重启后会再次送达 | 控制台的消息 id 在 gateway 每次启动时都不相同（第 6.2.4 节）；gateway 不对再次送达的 Telegram 更新去重，它们作为新的入站消息记录 |
+| state 中保存的内容：QQ 与控制台的消息去重键 `dedupe:<适配器>:<消息id>`（10 分钟过期，键中不含会话串 id）；Telegram 轮询不写去重键，轮询 offset 只在有处理失败、等待重试的更新时写入 state，其余由下一次 `getUpdates` 向 Telegram 确认；正在执行处理器的那一批更新在 `stopPolling()` 之后没有确认，重启后会再次送达 | 控制台的消息 id 在 gateway 每次启动时都不相同（第 6.2.5 节）；gateway 不对再次送达的 Telegram 更新去重，它们作为新的入站消息记录 |
 | 发送：`thread.post({markdown, files: [{data, filename, mimeType}]})`，返回 `SentMessage`（`edit`、`delete`、`addReaction`、`removeReaction`，`raw` 为 null）；接收附件：`attachment.fetchData()`，这个方法是可选的，只有 URL 的附件没有它，返回 `Buffer` 或 `ArrayBuffer` | gateway 直接调用适配器的 `postMessage`、`editMessage`、`deleteMessage`、`addReaction`、`removeReaction`，消息引用为 `<会话串id>\|<消息id>`（第 6.8 节）；没有 `fetchData` 的附件按 URL 下载 |
-| `bot.thread(id)`、`bot.channel(id)`、`bot.openDM(userId)` 可以在处理器之外发送消息；`openDM` 只按 id 的格式推断平台，同时注册 telegram、qq、console 时只有数字形式的 Telegram id 可用，其他 id 抛出 `UNKNOWN_USER_ID_FORMAT` | 主动发送时直接调用目标会话串所属适配器的 `postMessage`；发给管理员时使用管理员的 `notify_thread`，不使用 `openDM` |
+| `bot.thread(id)`、`bot.channel(id)`、`bot.openDM(userId)` 可以在处理器之外发送消息；`openDM` 只按 id 的格式推断平台，同时注册 telegram、qq、slack、console 时只有数字形式的 Telegram id 可用，其他 id 抛出 `UNKNOWN_USER_ID_FORMAT` | 主动发送时直接调用目标会话串所属适配器的 `postMessage`；发给管理员时使用管理员的 `notify_thread`，不使用 `openDM` |
 | 自定义适配器实现 `Adapter` 接口：必需 `name`、`userName`、`initialize`、`handleWebhook`、`parseMessage`、`encodeThreadId`、`decodeThreadId`、`channelIdFromThreadId`、`renderFormatted`、`postMessage`、`editMessage`、`deleteMessage`、`addReaction`、`removeReaction`、`startTyping`、`fetchMessages`、`fetchThread`，另有可选的 `isDM`；平台不支持的方法抛出 `NotImplementedError`；通过 `chat.processMessage`、`processSlashCommand`、`processAction`、`processReaction` 把事件交给核心。`processSlashCommand` 的事件必须带 `adapter`，`command` 包含开头的 `/`，它与 `processAction` 都需要第二个参数（`WebhookOptions` 或 `undefined`）（实测） | 控制台适配器与计划中的企业微信适配器自己编写 |
 | `adapter.initialize()` 拒绝时 `bot.initialize()` 也拒绝，并且在这个 `Chat` 对象的生命周期内一直保持拒绝，不会重试；各适配器的 `initialize()` 并行执行，`bot.initialize()` 等待最慢的一个（实测） | gateway 把各平台的首次连接放进自己的重试循环，`initialize()` 从不拒绝（第 6.1 节） |
 | `persistThreadHistory` 为 true 时，chat-sdk 把收发的消息写入 state 的 `msg-history:<id>` 列表；除 `history.channel.listMessages` 以外，所有读取历史的方法都先调用适配器的 `fetchMessages` 并传出它的异常 | 控制台适配器的 `fetchMessages` 返回空列表；bearbot 的聊天历史只从 `message_log` 读取 |
@@ -153,7 +154,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 |---|---|---|---|---|
 | Telegram | `@chat-adapter/telegram` 4.43.0（官方） | 长轮询（`mode: "polling"`），不需要公网地址。轮询启动时调用 `deleteWebhook`，它失败时 `initialize()` 拒绝；轮询开始之后的请求错误由适配器自己按退避一直重试 | 支持：消息以 `bot_command` 实体开头时作为 `onSlashCommand` 事件发出，**不会**进入消息处理器；没有注册处理器时被丢弃（实测）。没有这个实体的纯文本 `/bb help` 不是命令 | 会话串 id：私聊 `telegram:<userId>`，群 `telegram:<chatId>`，论坛话题 `telegram:<chatId>:<topicId>`。群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或把机器人设为群管理员。适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（传入 `userName` 会使提及判断失效，实测）。超过 4096 字符的文本被截断并加上 `...`，不分段，文件的说明文字截断到 1024 字符，所以长文本由 gateway 分段（第 6.8 节）。以群组或频道名义发送的消息的发送者见第 6.5 节 |
 | QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.2.0（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，已在真实 QQ 服务上验证 |
-| 企业微信 | 计划自研 `@bearbot/chat-adapter-wecom`，基于腾讯官方 `@wecom/aibot-node-sdk` 1.0.7 | 智能机器人 WebSocket 长连接，不需要公网地址 | 适配器自己解析：去掉开头的 @ 后以 `/` 开头的文本交给 `processSlashCommand` | 尚未实现：配置校验拒绝 `[platforms.wecom] enabled = true`。现有的企业微信社区适配器缺少私聊与提及判断，因此自己编写（第 6.2.3 节）。平台限制：群聊中只能收到 @ 机器人的消息 |
+| Slack | `@chat-adapter/slack` 4.43.0（官方） | Socket Mode（`mode: "socket"`），不需要公网地址。`initialize()` 在收到 `hello` 帧之后才返回，首次连接失败时拒绝，由 gateway 重试（第 6.1 节）；连接断开后 `@slack/socket-mode` 自己重连 | 不依赖平台注册的斜杠命令：Slack 不会把消息文本里的 `/bb` 当作命令，gateway 用 `raw.text` 识别（第 6.2.3 节）。应用在 Slack 中注册的斜杠命令进入 `onSlashCommand` | 设置 `isDM`（频道 id 以 `D` 开头）；支持群频道、私聊与线程、文件发送与接收、表情、按钮。会话串 id：`slack:<channelId>:<threadTs>`，私聊中顶层消息的 `threadTs` 为空（`slack:<channelId>:`），线程回复使用线程根消息的 `threadTs`。消息事件不带频道名称，由适配器在后台用 `conversations.info` 查询并缓存；机器人的用户 id 由 gateway 在连接前用 `auth.test` 取得，否则无法区分机器人自己的消息。令牌：`[platforms.slack] bot_token`（`xoxb-…`）与 `app_token`（`xapp-…`，需要 `connections:write`） |
 
 QQ 平台的身份说明：QQ 开放平台在群内给出的是 `member_openid`，在单聊中给出的是 `user_openid`，两者不同。所以同一个人在 QQ 群和 QQ 单聊中是两个身份，要成为管理员需要分别领取令牌，或由已有管理员用 `/bb admin add` 添加。
 
@@ -253,7 +254,7 @@ daemon 启动时用 `os/user` 查找这两个用户，`bearbot-gw` 不在 `bearb
 └── bearbot/                            root 0755
     ├── daemon/                         root 0700      state.json（root 0600，临时文件加 rename 写入，第 5.2 节）
     │   └── classifier-turn/            root 0700      未结束的 member 回合记录（第 7.10 节）
-    ├── gateway/                        bearbot-gw 0700  gateway.db（SQLite，WAL）、console-files/（发往控制台的文件，第 6.2.4 节）
+    ├── gateway/                        bearbot-gw 0700  gateway.db（SQLite，WAL）、console-files/（发往控制台的文件，第 6.2.5 节）
     ├── logs/                           root 0755      daemon.log、gateway.log
     │   ├── agent/                      root 0755      stderr.log、rpc-events.jsonl、classifier.jsonl、exits.jsonl（第 5.3 节）
     │   └── recovery/                   root 0755      <故障id>.log（第 10.2 节）
@@ -813,7 +814,7 @@ type StatusInfo = {
 | 方法 | 参数 | 结果与说明 |
 |---|---|---|
 | `hello` | `{}` | `{}`。daemon 连接后发送，gateway 返回即为就绪 |
-| `platforms.status` | `{}` | `{platforms}`：启用的平台按 telegram、qq、console 的顺序排列，每项为 `{name, state, since, lastDisconnectAt, lastReconnectAt, lastError, lastErrorAt}`。IM 平台的 `state` 为 `connecting`、`connected`、`disconnected`、`error`，控制台的为 `interactive`、`line`、`input-ended` |
+| `platforms.status` | `{}` | `{platforms}`：启用的平台按 telegram、qq、slack、console 的顺序排列，每项为 `{name, state, since, lastDisconnectAt, lastReconnectAt, lastError, lastErrorAt}`。IM 平台的 `state` 为 `connecting`、`connected`、`disconnected`、`error`，控制台的为 `interactive`、`line`、`input-ended` |
 | `admin.createToken` | `{ttlMs}` | `{token, expiresAt}`：生成一次性管理员令牌，返回明文令牌与过期时间（第 6.6 节）；不给 `ttlMs` 时使用 `token_ttl` |
 | `admin.list` | `{}` | `{admins}`：`admin` 表中的管理员按添加时间排列，控制台启用时最后是内置的 `console:operator`。每项为 `{identity, displayName, notifyThread, addedBy, addedAt, builtin}` |
 | `admin.revoke` | `{identity}` | `{}`；身份为内置管理员时返回错误“内置管理员不能撤销”，不是管理员时返回“<身份> 不是管理员” |
@@ -836,7 +837,7 @@ type StatusInfo = {
 | `status` | gateway 进程与连接状态、各平台连接状态（经 `platforms.status`）、agent 状态与原因、PID、启动时间与运行时长、重启次数、`crash_window` 内的意外退出次数、会话、观察期、`runningSnapshot` 与 `last-good`、待应用项、当前故障、维护状态、尚未确认的回滚记录、控制台是否启用 |
 | `logs <daemon\|gateway\|agent\|recovery:<故障id>> [-n 行数] [-f]` | 查看日志的最后 `-n` 行（默认 100，最多 10000），`agent` 为 `logs/agent/stderr.log`；`-f` 之后持续输出新的内容，`recovery:<故障id>` 只在这个故障正在修复时有新的内容 |
 | `admin token [--ttl 10m]` | 生成一次性管理员令牌并打印令牌、有效期与过期时间；不给 `--ttl` 时使用 `[gateway] token_ttl`。gateway 未连接时报错 |
-| `admin list`、`admin revoke <身份>` | 管理员管理。控制台启用时列表中包含标注为“内置”的 `console:operator`，不能撤销（第 6.2.4 节） |
+| `admin list`、`admin revoke <身份>` | 管理员管理。控制台启用时列表中包含标注为“内置”的 `console:operator`，不能撤销（第 6.2.5 节） |
 | `login [--config <路径>]` | 以 `bearbot` 身份、cwd `/home/bearbot` 运行交互式 `<node> /usr/local/bin/pi -ne`，在其中执行 `/login`，凭据写入 profile 的 `auth.json`。环境变量与 agent 进程相同（所以 `PI_CODING_AGENT_DIR` 指向 agent 的 profile），直接使用 `docker exec -it` 的终端，不以 `setsid` 启动；pi 运行期间命令行进程捕获 SIGINT、SIGQUIT 而不退出，等待 pi 结束（这两个信号没有设为忽略，所以 pi 仍然按默认方式处理它们）。不经过 `admin.sock` |
 | `restart` | 重启 agent 进程（等待当前回合结束）。先输出一行“正在重启 agent，等待当前回合结束……”，只在 `RUNNING` 时可以执行 |
 | `incident list`、`incident show <id>` | 故障记录：列表按时间从新到旧，每条为 id、建立时间、触发、状态、修复次数、结果；详情为 `report.md` 的内容加上 rpc 事件与文件位置 |
@@ -872,7 +873,7 @@ type StatusInfo = {
 
 ### 5.13 控制台
 
-控制台用于本地调试：在终端中直接和运行中的 agent 对话。控制台由 gateway 的 `console` 适配器实现（第 6.2.4 节），daemon 只负责把自己的标准输入输出交给 gateway，不转发任何内容。
+控制台用于本地调试：在终端中直接和运行中的 agent 对话。控制台由 gateway 的 `console` 适配器实现（第 6.2.5 节），daemon 只负责把自己的标准输入输出交给 gateway，不转发任何内容。
 
 #### 启用条件
 
@@ -881,7 +882,7 @@ daemon 在启动顺序第 5 步（第 5.2 节）判断控制台是否启用：`[
 #### 交给 gateway
 
 - 控制台启用时，daemon 每次启动 gateway 都把自己的标准输入、标准输出放在 `ExtraFiles` 中交给它，在 gateway 中是文件描述符 3、4；`gateway.json` 中写入 `console: {inputFd: 3, outputFd: 4}`。gateway 的标准输入仍然是 `/dev/null`，标准输出仍然写入 `gateway.log`。
-- 交给 gateway 之后，daemon 不再读写标准输入输出，日志只写 `daemon.log`；daemon 因错误退出时把原因写到标准错误。行模式下 gateway 以 `net.Socket` 打开管道（第 6.2.4 节），这会给 daemon 与 gateway 共用的文件描述设置 `O_NONBLOCK`，所以 daemon 更不能再使用它们。
+- 交给 gateway 之后，daemon 不再读写标准输入输出，日志只写 `daemon.log`；daemon 因错误退出时把原因写到标准错误。行模式下 gateway 以 `net.Socket` 打开管道（第 6.2.5 节），这会给 daemon 与 gateway 共用的文件描述设置 `O_NONBLOCK`，所以 daemon 更不能再使用它们。
 - gateway 重启期间没有进程读取终端，期间的输入留在终端的缓冲中，新的 gateway 启动后读取。
 
 #### 不可用时的提示
@@ -905,9 +906,9 @@ daemon 在启动顺序第 5 步（第 5.2 节）判断控制台是否启用：`[
 
 TypeScript（ESM），Node 24，用 TypeScript 7.0.2 编译（`rootDir` 为 `src`，输出 `dist/main.js`），代码位于 `/opt/bearbot/gateway`。运行时依赖：`chat`、`@chat-adapter/telegram`、`@chat-adapter/shared`（4.43.0）、`@amatsuka/chat-adapter-qq`（0.2.0）、`better-sqlite3`、`drizzle-orm`（迁移用 `drizzle-kit` 生成，放在 `gateway/drizzle/`，启动时用 `drizzle-orm/better-sqlite3/migrator` 执行，目录按模块自身的位置找到）、`pino`、`hono` 与 `@hono/node-server`（只在配置了 webhook 模式时启用 HTTP 服务）、`string-argv` 与 `yargs-parser`（`/bb` 参数解析）、`@scure/base`（令牌的 base32 编码）、`mime`（按文件名取得 MIME 类型）。开发依赖：`typescript`、`@types/node`、`@types/better-sqlite3`、`@types/yargs-parser`、`drizzle-kit`、`vitest`、`@chat-adapter/state-memory`（只用于对比测试）。
 
-进程：`<node> dist/main.js --config <gateway.json>`，命令行只接受 `--config`。`gateway.json`（第 5.2 节）按字段严格校验，`platforms` 中只能有 `telegram`、`qq`，`logLevel` 只能是 `debug`、`info`、`warn`、`error`，出错时退出。日志为 pino 的 JSON 行，写到 stdout（daemon 写入 `gateway.log`），每行带 `component: "gateway"`，chat-sdk 的子日志另带 `scope`。
+进程：`<node> dist/main.js --config <gateway.json>`，命令行只接受 `--config`。`gateway.json`（第 5.2 节）按字段严格校验，`platforms` 中只能有 `telegram`、`qq`、`slack`，`logLevel` 只能是 `debug`、`info`、`warn`、`error`，出错时退出。日志为 pino 的 JSON 行，写到 stdout（daemon 写入 `gateway.log`），每行带 `component: "gateway"`，chat-sdk 的子日志另带 `scope`。
 
-启动顺序：打开数据库（WAL 模式，执行迁移）→ 把上次进程中断的附件下载记为出错（附件的 `error` 为“gateway 重启，附件没有下载完成”）→ 控制台启用时确保控制台频道的绑定存在（第 6.2.4 节）→ 创建 `Chat` 并注册处理器 → `bot.initialize()` → 监听 `gateway-ctl.sock`（0600）与 `gateway.sock`（0660，组改为 `socketGroupGid`）→ 配置了 `[gateway.http] listen` 时启动 HTTP 服务 → 执行一次保留期清理，之后每小时一次（第 6.4 节）。收到 SIGTERM 或 SIGINT 时：停止接收 → 等待正在进行的发送结束 → 关闭 HTTP 服务与两个 socket → `bot.shutdown()` → 关闭数据库 → 以退出码 0 退出。
+启动顺序：打开数据库（WAL 模式，执行迁移）→ 把上次进程中断的附件下载记为出错（附件的 `error` 为“gateway 重启，附件没有下载完成”）→ 控制台启用时确保控制台频道的绑定存在（第 6.2.5 节）→ 创建 `Chat` 并注册处理器 → `bot.initialize()` → 监听 `gateway-ctl.sock`（0600）与 `gateway.sock`（0660，组改为 `socketGroupGid`）→ 配置了 `[gateway.http] listen` 时启动 HTTP 服务 → 执行一次保留期清理，之后每小时一次（第 6.4 节）。收到 SIGTERM 或 SIGINT 时：停止接收 → 等待正在进行的发送结束 → 关闭 HTTP 服务与两个 socket → `bot.shutdown()` → 关闭数据库 → 以退出码 0 退出。
 
 ### 6.1 chat-sdk 配置
 
@@ -920,6 +921,7 @@ const bot = new Chat({
       longPolling: { allowedUpdates: ["message", "edited_message", "callback_query", "message_reaction"] },
     }),
     qq: new GatewayQQAdapter({ appId, clientSecret, mode: "socket", sandbox, userName: cfg.userName, logger }, markdown),
+    slack: new GatewaySlackAdapter({ botToken, appToken, mode: "socket", userName: cfg.userName, logger, webClientOptions }),
     console: createConsoleAdapter({ inputFd, outputFd, filesDir, workspaceDir, userName: cfg.userName, logger }),
   },
   state: createSqliteState(db),
@@ -930,19 +932,20 @@ const bot = new Chat({
 bot.onDirectMessage((thread, message) => ingest.message(thread, message));
 bot.onNewMention((thread, message) => ingest.message(thread, message));
 bot.onNewMessage(/[\s\S]*/, (thread, message) => ingest.message(thread, message));
+bot.onMessageUpdated((thread, message) => ingest.message(thread, message));
 bot.onSlashCommand((event) => ingest.command(event));
 bot.onAction((event) => ingest.action(event));
 bot.onReaction((event) => ingest.reaction(event));
 await bot.initialize();
 ```
 
-- 只有 `[platforms.*]` 中启用的平台才会出现在 `adapters` 中；`console` 只在 `gateway.json` 中有 `console` 时出现（第 5.13、6.2.4 节）。
-- 不使用 `thread.subscribe()`，所以所有消息都由上面三个消息处理器之一收到。以下消息不会到达处理器：`author.isMe` 为 true 的消息、去重期内重复的消息、经 `processMessageUpdated` 送达的编辑（Telegram 轮询模式下的编辑作为新消息送达，见第 6.2.1 节）。
+- 只有 `[platforms.*]` 中启用的平台才会出现在 `adapters` 中；`console` 只在 `gateway.json` 中有 `console` 时出现（第 5.13、6.2.5 节）。
+- 不使用 `thread.subscribe()`，所以所有消息都由上面三个消息处理器之一收到。以下消息不会到达处理器：`author.isMe` 为 true 的消息、去重期内重复的消息。经 `processMessageUpdated` 送达的编辑由 `onMessageUpdated` 收到并作为 `edited: true` 的入站消息记录（Slack 使用这条路径，见第 6.2.3 节；Telegram 轮询模式下的编辑作为新消息送达，见第 6.2.1 节）。
 - `toChatLogger` 是给 chat-sdk 的日志包装：`child(prefix)` 转为 pino 的子日志 `{scope: prefix}`，`(message, ...args)` 中只有一个对象或错误时作为字段，否则放在 `args` 字段中（第 2.2 节）。
-- Telegram 适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（第 2.3 节）；`Chat` 的 `userName` 仍为 `[gateway] user_name`。QQ 适配器传入 `userName`，用于发出消息的作者名称。
-- `GatewayTelegramAdapter`、`GatewayQQAdapter` 是官方适配器的子类：它们的 `initialize()` 把真正的首次连接放进后台循环，失败时记录到平台状态，按 1 秒到 60 秒的指数退避重试，所以 `bot.initialize()` 从不拒绝（第 2.2 节），一个平台连接不上时控制台与其他平台照常工作。`drain` 时结束这个循环并停止接收（Telegram `stopPolling()`，QQ `stopSocketMode()`）。
-- 平台连接状态（`platforms.status`）：Telegram 由 `getUpdates` 请求的成功与失败得出（重写 `telegramFetch`，认证错误记为 `error`，其他错误记为 `disconnected`）；QQ 适配器没有状态接口，由它的日志行（连接、关闭、错误、认证失败等）得出。
-- `[gateway.http] listen` 非空时（`host:port`、`:port` 或 `port`），HTTP 服务只提供 `POST /webhooks/<platform>`，交给启用的 Telegram、QQ 适配器处理，其他平台返回 404。
+- Telegram 适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（第 2.3 节）；`Chat` 的 `userName` 仍为 `[gateway] user_name`。QQ 与 Slack 适配器传入 `userName`：QQ 用它作为发出消息的作者名称，Slack 用它作为显示名称（真实的 Slack 用户名以 `auth.test` 的结果为准，见第 6.2.3 节）。
+- `GatewayTelegramAdapter`、`GatewayQQAdapter`、`GatewaySlackAdapter` 是官方适配器的子类：它们的 `initialize()` 把真正的首次连接放进后台循环，失败时记录到平台状态，按 1 秒到 60 秒的指数退避重试，所以 `bot.initialize()` 从不拒绝（第 2.2 节），一个平台连接不上时控制台与其他平台照常工作。`drain` 时结束这个循环并停止接收（Telegram `stopPolling()`，QQ `stopSocketMode()`，Slack 断开 socket）。
+- 平台连接状态（`platforms.status`）：Telegram 由 `getUpdates` 请求的成功与失败得出（重写 `telegramFetch`，认证错误记为 `error`，其他错误记为 `disconnected`）；QQ 适配器没有状态接口，由它的日志行（连接、关闭、错误、认证失败等）得出；Slack 的首次连接由第 6.1 节的循环记录，之后的 Web API 错误由适配器记入平台状态。
+- `[gateway.http] listen` 非空时（`host:port`、`:port` 或 `port`），HTTP 服务只提供 `POST /webhooks/<platform>`，交给启用的 Telegram、QQ 适配器处理；Slack 使用 Socket Mode，webhook 请求返回 405，其他平台返回 404。
 
 ### 6.2 平台
 
@@ -966,7 +969,24 @@ await bot.initialize();
 - 发送时带 `replyTo`：见第 6.8 节。发送请求中的 `message_reference` 与被动回复用的 `msg_id` 互不影响，两者同时带上。
 - QQ 事件中没有频道名称。
 
-#### 6.2.3 企业微信适配器 `@bearbot/chat-adapter-wecom`
+#### 6.2.3 Slack
+
+`gateway/src/platforms.ts` 中的 `GatewaySlackAdapter` 继承官方的 `SlackAdapter`，以 Socket Mode 连接（第 2.3 节）。
+
+- **首次连接与重试**：`initialize()` 先把机器人用户 id 用 `auth.test` 查出来，再调用 `startSocketMode()`，整个过程放进第 6.1 节的 `ConnectLoop`。库自己的 `initialize()` 在用户 id 查询失败时只记一条警告并照常连接，这时适配器无法区分机器人自己发出的消息（`isMe` 永远为 false）：这些消息会被记录，在 `--trigger all` 的频道里形成回复循环，所以用户 id 的查询失败按首次连接失败处理，由循环重试。`startSocketMode()` 被重写，因为库默认新建的 `SocketModeClient` 的 Web API 客户端对 `apps.connections.open` 重试 100 次、间隔按指数增长，错误的 app token 会让 `start()` 持续数小时，`disconnect()` 也停不下它；重写后用 `retries: 2` 的有界重试与每个请求 30 秒的超时，其余设置与库相同（`slack_event` 交给 `routeSocketEvent`）。连接成功之后，`@slack/socket-mode` 自己重连。
+- **drain 与关闭**：`stopReceiving()` 先结束 `ConnectLoop`（正在进行的首次连接失败后不再重试），再断开 `socketClientForStop` 与库的 `disconnect()`（第 5.10.3 节的 `drain`）。
+- **Web API 的重试与超时**：`webClientOptions` 为 `retryConfig: {retries: 2}` 与 `timeout: 30s`。库的默认策略对限流请求在约 30 分钟内重试 10 次，而等待它的发送会被拖住；被限流的一次调用在抛出前已经按 `Retry-After` 等待过，所以两次重试足够，持续失败会变成可见的错误。
+- **会话串**：`slack:<channelId>:<threadTs>`。频道中的消息与线程回复使用 `thread_ts`（顶层消息使用自己的 `ts`），所以一个频道里的每条顶层消息与它的回复属于同一个会话串；私聊里顶层消息的 `threadTs` 为空，会话串为 `slack:<channelId>:`，线程回复使用线程根消息。频道 id 为 `channelIdFromThreadId` 的结果 `slack:<channelId>`。
+- **提及**：适配器按 `botUserId` 判断消息是否提及机器人（`app_mention` 事件，或正文中的 `<@botUserId>`）。私聊中 `isDM` 为真。
+- **令牌与 `/bb` 的识别**：Slack 不把消息文本里的 `/` 开头文本当作斜杠命令，`/bb` 与 `!bb`、`!steer` 都作为普通消息送达。识别使用 `raw.text`（Slack 的 mrkdwn），先去掉开头的提及标记：`<@U123>`、`<@U123|名称>`、`<!channel>` 等。交给 agent 的正文为适配器解析出的 `message.text`（mrkdwn 已转成 markdown，提及写成 `@名称`）。
+- **编辑**：Slack 通过 `processMessageUpdated` 送达编辑（`message_changed`）。gateway 注册了 `bot.onMessageUpdated`，编辑过的消息按第 6.5 节第 6 步记录为 `edited: true` 的入站消息，`trigger` 为 false；与 Telegram 轮询模式不同，Slack 不会把编辑当作新消息重复送达。
+- **频道名称**：消息事件不带频道名称。`GatewaySlackAdapter` 用 `conversations.info` 查询（私聊中再取对方的名称），按频道缓存；第一次见到某个频道时在后台发起查询（不阻塞入站处理），从下一条消息起使用查到的名称，绑定在 `/bb attach` 时记录。查询失败不影响消息处理。
+- **发送**：`bearbot-im` 的 markdown 文本按 `markdown_text` 的 12000 字符上限分段，gateway 自己的纯文本按 `text` 的 40000 字符上限分段，尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开。文件随第一段发送，卡片作为单独的一条消息。引用回复：Slack 没有单独的引用参数，第一条消息发送到被引用消息所在的会话串 `slack:<channelId>:<messageId>`，从而显示在线程中；`message_log` 中找不到被引用的消息时返回错误“找不到要回复的消息”，与 QQ 相同。
+- **表情与按钮**：`reaction_added`、`reaction_removed` 与 `block_actions` 分别进入 `onReaction`、`onAction`（第 6.5 节）。
+- **附件**：入站文件带 `fetchData()`，由适配器用机器人令牌下载（只用在与 Slack 相关的地址上）；gateway 按第 6.5 节第 7 步保存。
+- **socket 重发**：`@slack/socket-mode` 对慢确认的事件会重发（`retry_num > 0`），适配器按 `event_id` 去重（在 state 中记录已送达的事件），所以同一条消息不会记录两次。
+
+#### 6.2.4 企业微信适配器 `@bearbot/chat-adapter-wecom`
 
 尚未实现。配置校验拒绝 `[platforms.wecom] enabled = true`，`gateway.json` 中不会出现 `wecom`，gateway 也没有引用这个包的代码。下面是计划中的实现，其中 chat-sdk 的接口用法已经按第 2.2 节核实过的行为写明。
 
@@ -989,7 +1009,7 @@ await bot.initialize();
 
 `@chat-adapter/tests` 只提供基于 `vi.fn()` 的辅助函数与三组契约测试，其中只有 `threadIdContract` 适用于 WebSocket 适配器，它不连接任何平台。
 
-#### 6.2.4 控制台适配器
+#### 6.2.5 控制台适配器
 
 `gateway/src/console-adapter.ts`，实现 chat-sdk 的 `Adapter` 接口，`name = "console"`，直接读写 daemon 交给 gateway 的终端（第 5.13 节）。只在 `gateway.json` 中有 `console` 时创建。消息的处理与 IM 平台的私聊消息完全相同：写入 `message_log`、经过 `bearbot-im` 的订阅者与中间件、进入派发队列、支持 `/bb` 命令。终端用户的身份固定为 `console:operator`，是内置管理员。能读写 bearbotd 标准输入输出的人已经能控制整个容器（`docker attach` 需要 docker 权限），所以不需要领取令牌。
 
@@ -1102,7 +1122,7 @@ await bot.initialize();
 1. 取得用于识别的原始文本（Telegram 为 `raw.text`，没有时为 `raw.caption`；QQ 为去掉开头提及标记的 `raw.content`；控制台为输入的文本），去掉首尾空白后整段是一个以 `bearbot-` 开头（不区分大小写）的词时，交给令牌处理（第 6.6 节）后结束。像“bearbot-im 很好用”这样的句子不算令牌。
 2. 这段文本形如 `/bb` 或 `/bb@<名称>` 加参数时（例如 Telegram 中没有 `bot_command` 实体的命令、被编辑的命令），交给命令处理（第 6.7 节）后结束；`<名称>` 与本平台机器人的用户名不同（不区分大小写）时，这条命令是发给其他机器人的，直接丢弃，不执行也不交给 agent。形如 `!bb` 或 `!bb@<名称>` 加问题时（`!bb` 不区分大小写，后面必须是空白或结尾，所以 `!bbq` 是普通消息），交给 `!bb` 提问（第 6.9 节）后结束，`<名称>` 的规则相同。形如 `!steer` 或 `!steer@<名称>` 加文本时（规则与 `!bb` 相同），是插入当前回合的消息（第 6.10 节），`<名称>` 的规则相同：发送者不是管理员时只写入 gateway 日志后结束；否则正文取自适配器解析出的 `message.text`（Telegram 的实体已写成 markdown，QQ 为纯文本，与其他消息的正文相同；QQ 中提及机器人的消息先去掉开头的提及标记，做法与 QQ 适配器识别斜杠命令时相同），这段文本去掉首尾空白后同样以 `!steer` 开头时，正文为其后的文本，去掉首尾空白；否则（`!steer` 本身带有加粗、代码、链接等格式）回复“!steer 本身带有格式（例如加粗、代码或链接），无法取得后面的正文，请发送不带格式的 !steer”后结束。正文为空并且消息没有附件时回复用法说明后结束；其他情况这条消息继续按第 3～8 步处理。第 1、2 步在查找绑定之前执行，所以未绑定的频道中也可以领取令牌、执行 `/bb` 命令、使用 `!bb` 提问。
 3. 按 `thread.channelId` 查找绑定；未绑定（或者绑定的平台没有注册，第 6.4 节）则结束，`!steer` 的消息回复“当前频道没有绑定，无法插入当前回合”后结束。
-4. 计算发送者角色：身份在 `admin` 表中，或者是控制台的内置管理员 `console:operator`（第 6.2.4 节）时为 `admin`，否则为 `member`。
+4. 计算发送者角色：身份在 `admin` 表中，或者是控制台的内置管理员 `console:operator`（第 6.2.5 节）时为 `admin`，否则为 `member`。
 5. 按绑定的 `trigger` 计算初始 `trigger` 值：`mention` 时为 `message.isMention || thread.isDM`；`all` 时为 true；`prefix` 时为去掉开头空白的文本是否以 `prefix` 开头，是的话正文去掉前缀与其后的空白。`!steer` 的消息不看绑定的 `trigger`，为 true。被编辑的消息为 false。
 6. 组成消息：`id`、`platform`、`channel`（频道 id、名称、是否私聊；名称优先取平台给出的，没有时用绑定中记录的）、`thread`、`sender`、`time`（带本地时区偏移的 ISO 8601）、`text`、`mentionsBot`、`edited`、`replyTo`、`steer`（只有没有被编辑的 `!steer` 消息带有，值为 true）、附件的名称与类型（没有名称时为 `<类型>-<序号>.<扩展名>`，同一条消息中重名的加上 `<序号>-` 前缀）。在一个事务中分配下一个 `seq`，写入 `message_log`（有附件时带 `pending: true`），然后返回。处理器到此结束，Telegram 的轮询可以立即继续。
 7. 异步执行：附件逐个取得内容（附件自带的数据、`fetchData()`，只有 URL 的 QQ 附件用 `@chat-adapter/shared` 的 `downloadAttachment` 下载），每个附件最长 `attachment_timeout`，写入 `/bearbot/workspace/inbox/<本地日期>/<消息id>-<文件名>`（`/`、`\` 换成 `_`）。工作区由 agent 写入，所以 gateway 写入时不跟随符号链接：`inbox/` 与日期目录必须是真实的目录（不存在时以 0775 创建，是符号链接时失败），内容先写入同一目录中以 `O_CREAT|O_EXCL|O_NOFOLLOW` 新建的临时文件，确认打开的确实是这个位置上的普通文件，然后用 `rename(2)` 放到最终的文件名上（已有的文件或符号链接被替换，不会被跟随）。下载失败或超时的附件记为 `{error}`（例如“下载超时（60 秒）”），消息照常发送。全部附件处理完后去掉 `pending`，触发发送。
@@ -1139,7 +1159,7 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 | `/bb`、`/bb help` | 命令列表 |
 | `/bb here` | 当前频道 id 与名称、会话串 id、是否私聊、绑定设置、gateway 最近收到的 agent 状态 |
 | `/bb attach [--trigger mention\|all\|prefix] [--prefix <文本>] [--reply final\|each] [--interrupt queue\|steer]` | 绑定当前频道；没有给出的设置取已有绑定的值，新绑定时私聊默认 `all`、群默认 `mention`，`reply` 默认 `final`，`interrupt` 默认 `queue`。`trigger` 为 `prefix` 时必须有前缀。取值不在范围内时返回错误。同时更新频道名称 |
-| `/bb detach` | 解除当前频道的绑定；控制台频道不能解除（第 6.2.4 节），没有绑定时返回错误 |
+| `/bb detach` | 解除当前频道的绑定；控制台频道不能解除（第 6.2.5 节），没有绑定时返回错误 |
 | `/bb new` | 开启新会话（daemon 的 `session {action: "new"}`，第 5.3 节）。所有绑定的频道都会改用新会话 |
 | `/bb stop` | 中止正在进行的回合（`session {action: "abort"}`）；有回合时回复中说明该回合由哪个会话串发起（扩展发起、没有回复目标时写明）、角色与开始时间，这些来自 `bearbot-im` 的 `turn` 通知（第 6.8 节）；队列中排队的消息不受影响 |
 | `/bb compact [说明]` | 压缩当前会话（`session {action: "compact", instructions?}`） |
@@ -1150,7 +1170,7 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 | `/bb snapshot list` | 快照列表，内容与命令行 `snapshot list` 相同（第 5.11 节） |
 | `/bb snapshot diff <引用> [引用]` | 两个快照之间的 `git diff --stat`，只给一个引用时与它的父提交比较 |
 | `/bb admin list` | 管理员列表（名字、通知会话串、添加者与添加时间）；控制台启用时包含标注为“内置”的 `console:operator` |
-| `/bb admin add <身份>`，或回复某人的消息发送 `/bb admin add` | 添加管理员。身份必须形如 `telegram:…`、`qq:…`、`wecom:…`；`console:operator` 返回错误；已经是管理员时回复说明。回复他人消息时按被回复的消息选择用户（Telegram 见第 6.5 节；QQ 的引用中没有发送者，只能写明身份） |
+| `/bb admin add <身份>`，或回复某人的消息发送 `/bb admin add` | 添加管理员。身份必须形如 `telegram:…`、`qq:…`、`slack:…`、`wecom:…`；`console:operator` 返回错误；已经是管理员时回复说明。回复他人消息时按被回复的消息选择用户（Telegram 见第 6.5 节；QQ 的引用中没有发送者，只能写明身份） |
 | `/bb admin remove <身份>` | 移除管理员；内置管理员 `console:operator` 不能移除 |
 | `/bb classifier status` | 开关状态（以及它来自数据库设置——谁在何时修改——还是配置文件默认值）、全部规则，以及 `CLASSIFIER.md` 是否存在、文件类型、大小与修改时间 |
 | `/bb classifier on`、`/bb classifier off` | 打开或关闭 classifier |
@@ -1183,9 +1203,10 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 - `target` 是会话串 id 或频道 id。它所属的频道（由对应平台适配器的 `channelIdFromThreadId` 计算）已绑定且可见，或者它等于某个管理员的 `notify_thread` 时才允许，其他目标返回错误“目标 <target> 不是已绑定的频道，也不是管理员的通知会话串”。`edit`、`delete`、`react` 按 `ref` 中的会话串检查。控制台没有启用时，`console:main` 不是有效的目标。
 - `files[].path` 为绝对路径或相对工作区目录的路径。gateway 先用 `realpath` 确认它在工作区目录内，再以 `O_NOFOLLOW|O_NONBLOCK` 打开，从 `/proc/self/fd` 读出实际打开的路径，再次确认它在工作区内并且是普通文件，然后从这个文件描述符读取，作为 `FileUpload` 发送；文件名默认为路径的最后一段，MIME 类型按文件名取得。不满足时返回“文件不在工作区目录内”“不是普通文件”或“无法读取文件”。
 - `card` 是 chat-sdk 的 `CardElement` JSON（`type` 为 `card`），在文本之后作为单独的一条消息发送。
-- 文本拆分：Telegram 的 markdown 文本按 `TelegramFormatConverter().fromMarkdown(片段).length <= 4096` 分段，gateway 自己的纯文本按长度 4096 分段；尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开，超长的单行被截开。带文件时，文件每 10 个一组（媒体组）；文本（按同样的方式计算长度）不超过 1024 个字符时作为第一组的说明文字，否则先发送分段后的文本，再发送不带说明文字的文件。QQ 与控制台的文本不分段，作为一条消息发送；QQ 的 markdown 文本按 `[platforms.qq] markdown` 以 markdown 消息或纯文本发送（第 6.2.2 节）。
+- 文本拆分：Telegram 的 markdown 文本按 `TelegramFormatConverter().fromMarkdown(片段).length <= 4096` 分段，gateway 自己的纯文本按长度 4096 分段；尽量在行尾分开，跨段的代码块在段尾闭合、在下一段重新打开，超长的单行被截开。带文件时，文件每 10 个一组（媒体组）；文本（按同样的方式计算长度）不超过 1024 个字符时作为第一组的说明文字，否则先发送分段后的文本，再发送不带说明文字的文件。Slack 的 markdown 按 `markdown_text` 的 12000 字符上限分段，纯文本按 `text` 的 40000 字符上限分段，文件随第一段发送（第 6.2.3 节）。QQ 与控制台的文本不分段，作为一条消息发送；QQ 的 markdown 文本按 `[platforms.qq] markdown` 以 markdown 消息或纯文本发送（第 6.2.2 节）。
 - `replyTo` 是要引用回复的消息 id（`message_log` 中的 `message_id`，也就是交给 `bearbot-im` 的消息的 `id`），只有第一条发出的消息带引用：
   - Telegram：作为 `reply_parameters` 交给适配器，适配器同时设置 `allow_sending_without_reply`，被引用的消息已经删除或不存在时消息照常发出、不带引用。
+  - Slack：第一条消息发送到被引用消息所在的会话串 `slack:<channelId>:<被引用消息 id>`（线程中的回复），`message_log` 中找不到这条消息时返回 `-32000`“找不到要回复的消息：<id>”，什么也不发送（第 6.2.3 节）。
   - QQ：先在目标会话串中查找这条消息（`kind` 为 `message` 或 `command` 的行，同一个 id 有多行时取最新的一行），找不到时返回 `-32000`“找不到要回复的消息：<id>”，什么也不发送；找到但 `quote_id` 为空（QQ 没有给出引用索引）时照常发送、不带引用，并记一条 info 日志；否则用适配器的 `postQQMessage` 发送，带 `message_reference: {message_id: <quote_id>, ignore_get_message_error: true}`，与 Telegram 一样，QQ 找不到被引用的消息时消息照常发出。带引用的这条消息总是以纯文本（`msg_type` 0）发送，不受 `[platforms.qq] markdown` 影响：markdown 消息带 `message_reference` 时，QQ 手机客户端把正文连续显示两遍。卡片在 QQ 中以 markdown 消息发送，没有纯文本的形式，所以第一条要发出的是卡片并且需要带引用时返回 `-32000`“QQ 不能引用回复卡片消息”，什么也不发送。
   - 控制台：适配器没有回复的调用，忽略 `replyTo`。
 - 每条发出的消息（分段后的每一段）都记入 `message_log`（`direction = "out"`，`kind = "message"`），内容为文本、附件的名称与大小、卡片；QQ 的消息另外记录发送响应中的引用索引（第 6.2.2 节）。
@@ -1224,7 +1245,7 @@ gateway → `bearbot-im` 的请求：
 - 只有管理员（包括控制台的内置管理员）可以使用。非管理员发送时不回应，只写入 gateway 日志：btw 会话中的工具调用不经过 classifier。
 - 问题为空时回复用法说明。
 - 没有完成 `hello` 的 `bearbot-im` 连接时（agent 进程没有运行，或者处在故障、维护、回滚等状态），回复“bearbot-im 没有连接 gateway（agent 状态：<gateway 最近收到的状态>），无法回答”。
-- 否则向 `bearbot-im` 发送 `btw` 请求（第 6.8 节）。等待期间每 5 秒向会话串发送一次 `typing`，失败时只记一次 gateway 日志。收到回答后以 markdown 发到发起的会话串，分段规则与 `bearbot-im` 的 `post` 相同，不引用原消息（原消息不在 `message_log` 中，QQ 无法引用）。请求失败时以纯文本回复“btw 提问失败：<原因>”。
+- 否则向 `bearbot-im` 发送 `btw` 请求（第 6.8 节）。等待期间每 5 秒向会话串发送一次 `typing`，失败时只记一次 gateway 日志。收到回答后以 markdown 发到发起的会话串，分段规则与 `bearbot-im` 的 `post` 相同，不引用原消息（原消息不在 `message_log` 中，QQ 与 Slack 都无法引用）。请求失败时以纯文本回复“btw 提问失败：<原因>”。
 - 提问在后台执行，不阻塞平台的接收；同时进行的多个提问互不影响。
 
 ### 6.10 `!steer` 插入当前回合
@@ -1976,6 +1997,11 @@ client_secret = "${QQ_BOT_CLIENT_SECRET}"
 sandbox = false
 markdown = true                 # 文本以 markdown 消息发送（需要平台开通的权限）；false 时以纯文本发送（第 6.2.2 节）
 
+[platforms.slack]
+enabled = false
+bot_token = "${SLACK_BOT_TOKEN}"   # Slack 应用的机器人令牌（xoxb-…）
+app_token = "${SLACK_APP_TOKEN}"   # Socket Mode 的应用级令牌（xapp-…，需要 connections:write 权限；第 6.2.3 节）
+
 [platforms.wecom]
 enabled = false                 # 企业微信适配器尚未实现，设为 true 时 daemon 拒绝启动
 bot_id = "${WECOM_BOT_ID}"
@@ -2017,7 +2043,7 @@ hook_timeout = "30s"            # 每条命令的最长执行时间
 - 时长用 Go `time.ParseDuration` 解析，另外可以以整天数开头（例如 `30d`、`1d12h`）；所有时长都必须大于 0。换算为整数毫秒交给 gateway 或 `bearbot-im` 的时长（`token_ttl`、`replay_window`、`message_retention`、`attachment_timeout`、`[classifier] timeout`、`[bridge] hold_warn_after`）不能小于 1 毫秒。
 - `log_level` 只能是 `debug`、`info`、`warn`、`error`。
 - `[agent] crash_limit`、`[gateway] crash_limit`、`[recovery] attempts`、`image_max_bytes`、`rules_max_bytes` 不小于 1；`observe_limit` 不小于 0。
-- `user_name`、`maintenance_notice`、`error_notice` 不能为空；启用的平台的凭据不能为空；`[maintenance]` 中的每一项不能为空。
+- `user_name`、`maintenance_notice`、`error_notice` 不能为空；启用的平台的凭据不能为空（Slack 是两个：`bot_token` 与 `app_token`）；`[maintenance]` 中的每一项不能为空。
 - `[gateway.http] listen` 为空，或者写成 `host:port`、`:port`、`port`，端口为 1～65535。
 - `[classifier] model` 必须写成 `<provider>/<model id>`，两部分都不能为空（模型 id 中可以再有 `/`）。
 - `[platforms.wecom] enabled = true` 被拒绝：这个版本没有实现企业微信适配器。
@@ -2185,11 +2211,11 @@ bearbot/
 │   │   ├── rpc.ts                        换行分隔的 JSON-RPC 连接
 │   │   ├── sockets.ts                    unix socket 的创建与权限
 │   │   ├── safe-open.ts                  不跟随符号链接地打开工作区中的文件
-│   │   ├── console-adapter.ts            console 适配器（第 6.2.4 节）
+│   │   ├── console-adapter.ts            console 适配器（第 6.2.5 节）
 │   │   ├── outbound.ts                   发送、分段、文件读取
 │   │   ├── http-server.ts                webhook 模式的 HTTP 服务
 │   │   └── time.ts
-│   └── test/                             vitest：gateway 进程、控制台交互模式、平台、分段、SQLite state、Telegram 入站、令牌
+│   └── test/                             vitest：gateway 进程、控制台交互模式、平台、分段、SQLite state、Telegram / QQ / Slack 入站、令牌
 ├── extensions/
 │   ├── tsconfig.json                     bearbot-im 与 SDK 的类型检查配置
 │   ├── bearbot-im/
@@ -2302,6 +2328,7 @@ bearbot/
   - 没有应用记录且不指定快照时，确认返回错误。
 - **gateway**：用 SIGKILL 终止 gateway，确认重启后不丢消息、`bearbot-im` 重新连接成功、维护状态下的提示照常回复、断开期间的 `notify` 被补发；在 `bearbot-im` 已连接时用另一个进程发送 `hello`，确认被拒绝。
 - **SQLite state**：对 `createSqliteState` 运行 chat-sdk 的 state 行为（订阅、锁、TTL、队列），与 `@chat-adapter/state-memory` 在同样操作序列下的结果对比。
+- **Slack**：用真实的 Slack 适配器与 gateway 的 `Ingest`、`Commands`、`Repo`，把 socket 模式的事件（`events_api` 封包，经 `routeSocketEvent`）交给它的处理器；Web API 的地址指向拒绝连接的端口，所以连接、频道名查询与回复都失败、只写入日志。确认：消息的会话串为 `slack:<channel>:<ts>`，线程中的回复共用线程根的会话串，私聊的会话串为 `slack:<channel>:` 且 `isDM` 为真；令牌、`/bb`、`!steer` 的识别使用原始文本，开头的 `<@bot>` 被去掉；编辑经 `onMessageUpdated` 记录为 `edited: true`、`trigger` 为 false；`retry_num > 0` 的重发按 `event_id` 去重；机器人自己的消息（`bot_id` 为 `auth.test` 得到的 id）不记录。另有一个 gateway 进程的测试：无效的 bot token 与 app token 时 `platforms.status` 中的 `slack` 记为 `error` 并重试，控制台照常工作，SIGTERM 能结束进程。
 - **控制台**：
   - 用 `docker run -i`（行模式）通过管道写入消息，确认 agent 的回复写到标准输出、`<bearbot-turn>` 的 `role` 为 `admin`、`/bb status` 可用、以 `/` 开头的其他命令作为 `kind = "command"` 的消息交给 agent；用 `:file` 发送工作区中的文件，确认文件写入 `inbox/`；让 agent 用 `im_send` 发送文件，确认文件保存到 `console-files/` 并输出保存路径；写入 `::abc`，确认 agent 收到 `:abc`；关闭输入管道后确认 daemon 继续运行、IM 平台照常处理消息；
   - 用 `docker run -dit` 启动并 `docker attach`：在 agent 回复到达时正在输入，确认回复输出后输入行完整重新显示；粘贴多行文本，确认成为一条消息；行尾 `\` 续行；Ctrl-C 只清除输入并输出提示，bearbotd 继续运行；空行上的 Ctrl-D 之后仍然可以继续输入；Ctrl-P Ctrl-Q 断开后容器继续运行，再次 `docker attach` 后可以继续对话；

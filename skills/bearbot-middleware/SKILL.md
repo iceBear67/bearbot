@@ -166,7 +166,7 @@ export function useBearbot(pi: ExtensionAPI, options: { name: string }): Bearbot
 - `steer`：只出现在管理员用 `!steer` 发送、没有被编辑的消息上，表示这条消息可以插入这个管理员自己正在进行的回合，不受绑定的 `interrupt` 限制。`ctl.merge` 合并的消息中任一条带有它时，合并结果也带有它。
 - `stale`：bot 长时间不可用后补发的过期消息，`trigger` 已改为 `false`，只作为旁观上下文。
 - `attachments[].path` 相对工作区目录；下载失败时只有 `error`。
-- `channel.id`、`thread`：例如 Telegram 群 `telegram:-100123`，论坛话题 `telegram:-100123:7`，QQ 群 `qq:group/<id>`，控制台 `console:main`。
+- `channel.id`、`thread`：例如 Telegram 群 `telegram:-100123`，论坛话题 `telegram:-100123:7`，QQ 群 `qq:group/<id>`，Slack 频道中的消息 `slack:<channel id>:<thread ts>`（同一线程中的回复共用一个会话串），Slack 私聊 `slack:<channel id>:`，控制台 `console:main`。
 
 ## 4. 入站中间件的语义
 

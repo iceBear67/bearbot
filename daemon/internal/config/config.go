@@ -78,6 +78,7 @@ type GatewayHTTP struct {
 type Platforms struct {
 	Telegram Telegram
 	QQ       QQ
+	Slack    Slack
 	WeCom    WeCom
 	Console  Console
 }
@@ -95,6 +96,14 @@ type QQ struct {
 	ClientSecret string
 	Sandbox      bool
 	Markdown     bool
+}
+
+// Slack is the [platforms.slack] section. The bot token is a bot user OAuth token (xoxb-…), the app token an
+// app-level token with the connections:write scope (xapp-…).
+type Slack struct {
+	Enabled  bool
+	BotToken string
+	AppToken string
 }
 
 // WeCom is the [platforms.wecom] section. Enabled is always false after validation: the adapter is not implemented
@@ -197,6 +206,7 @@ type rawGatewayHTTP struct {
 type rawPlatforms struct {
 	Telegram rawTelegram `toml:"telegram"`
 	QQ       rawQQ       `toml:"qq"`
+	Slack    rawSlack    `toml:"slack"`
 	WeCom    rawWeCom    `toml:"wecom"`
 	Console  rawConsole  `toml:"console"`
 }
@@ -212,6 +222,12 @@ type rawQQ struct {
 	ClientSecret string `toml:"client_secret"`
 	Sandbox      bool   `toml:"sandbox"`
 	Markdown     bool   `toml:"markdown"`
+}
+
+type rawSlack struct {
+	Enabled  bool   `toml:"enabled"`
+	BotToken string `toml:"bot_token"`
+	AppToken string `toml:"app_token"`
 }
 
 type rawWeCom struct {
@@ -439,6 +455,10 @@ func expandAll(raw *rawConfig) error {
 		str("[platforms.qq] app_id", &raw.Platforms.QQ.AppID)
 		str("[platforms.qq] client_secret", &raw.Platforms.QQ.ClientSecret)
 	}
+	if raw.Platforms.Slack.Enabled {
+		str("[platforms.slack] bot_token", &raw.Platforms.Slack.BotToken)
+		str("[platforms.slack] app_token", &raw.Platforms.Slack.AppToken)
+	}
 
 	str("[bridge] hold_warn_after", &raw.Bridge.HoldWarnAfter)
 	str("[bridge] error_notice", &raw.Bridge.ErrorNotice)
@@ -587,6 +607,10 @@ func build(raw *rawConfig) (*Config, error) {
 		nonEmpty("[platforms.qq] app_id", raw.Platforms.QQ.AppID)
 		nonEmpty("[platforms.qq] client_secret", raw.Platforms.QQ.ClientSecret)
 	}
+	if raw.Platforms.Slack.Enabled {
+		nonEmpty("[platforms.slack] bot_token", raw.Platforms.Slack.BotToken)
+		nonEmpty("[platforms.slack] app_token", raw.Platforms.Slack.AppToken)
+	}
 	if raw.Platforms.WeCom.Enabled {
 		fail("[platforms.wecom] enabled = true 不受支持：这个版本没有实现企业微信适配器，请设为 false")
 	}
@@ -599,6 +623,11 @@ func build(raw *rawConfig) (*Config, error) {
 			Sandbox:      raw.Platforms.QQ.Sandbox,
 			Markdown:     raw.Platforms.QQ.Markdown,
 		},
+		Slack: Slack{
+			Enabled:  raw.Platforms.Slack.Enabled,
+			BotToken: raw.Platforms.Slack.BotToken,
+			AppToken: raw.Platforms.Slack.AppToken,
+		},
 		WeCom:   WeCom{Enabled: false, BotID: raw.Platforms.WeCom.BotID, Secret: raw.Platforms.WeCom.Secret},
 		Console: Console{Enabled: raw.Platforms.Console.Enabled},
 	}
@@ -608,6 +637,10 @@ func build(raw *rawConfig) (*Config, error) {
 	if !raw.Platforms.QQ.Enabled {
 		cfg.Platforms.QQ.AppID = ""
 		cfg.Platforms.QQ.ClientSecret = ""
+	}
+	if !raw.Platforms.Slack.Enabled {
+		cfg.Platforms.Slack.BotToken = ""
+		cfg.Platforms.Slack.AppToken = ""
 	}
 	cfg.Platforms.WeCom.BotID = ""
 	cfg.Platforms.WeCom.Secret = ""

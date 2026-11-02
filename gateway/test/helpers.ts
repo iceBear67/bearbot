@@ -125,13 +125,13 @@ export class GatewayProcess {
 
   constructor(
     readonly env: Env,
-    options: { console?: boolean } = {},
+    options: { console?: boolean; env?: Record<string, string> } = {},
   ) {
     const withConsole = options.console ?? true;
     this.child = spawn(process.execPath, [MAIN_JS, "--config", env.configPath], {
       cwd: GATEWAY_DIR,
       stdio: withConsole ? ["ignore", "pipe", "pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: env.dataDir, TZ: GATEWAY_TZ },
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: env.dataDir, TZ: GATEWAY_TZ, ...options.env },
     });
     this.child.stdout!.setEncoding("utf8");
     this.child.stdout!.on("data", (d: string) => (this.logOut += d));

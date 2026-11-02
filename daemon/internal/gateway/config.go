@@ -27,9 +27,15 @@ type qqJSON struct {
 	Markdown     bool   `json:"markdown"`
 }
 
+type slackJSON struct {
+	BotToken string `json:"botToken"`
+	AppToken string `json:"appToken"`
+}
+
 type platformsJSON struct {
 	Telegram *telegramJSON `json:"telegram,omitempty"`
 	QQ       *qqJSON       `json:"qq,omitempty"`
+	Slack    *slackJSON    `json:"slack,omitempty"`
 }
 
 type consoleJSON struct {
@@ -93,6 +99,9 @@ func BuildFile(p layout.Paths, u *layout.Users, cfg *config.Config, console bool
 			Sandbox:      cfg.Platforms.QQ.Sandbox,
 			Markdown:     cfg.Platforms.QQ.Markdown,
 		}
+	}
+	if cfg.Platforms.Slack.Enabled {
+		f.Platforms.Slack = &slackJSON{BotToken: cfg.Platforms.Slack.BotToken, AppToken: cfg.Platforms.Slack.AppToken}
 	}
 	if console {
 		f.Console = &consoleJSON{InputFd: ConsoleInputFd, OutputFd: ConsoleOutputFd}

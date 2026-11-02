@@ -1,7 +1,7 @@
 // contracts 9.4: Telegram parts must satisfy TelegramFormatConverter().fromMarkdown(part).length <= 4096.
 import { TelegramFormatConverter } from "@chat-adapter/telegram";
 import { expect, test } from "vitest";
-import { TELEGRAM_TEXT_LIMIT, splitText } from "../src/outbound.ts";
+import { SLACK_MARKDOWN_LIMIT, SLACK_TEXT_LIMIT, TELEGRAM_TEXT_LIMIT, splitText } from "../src/outbound.ts";
 
 const converter = new TelegramFormatConverter();
 const measure = (s: string) => converter.fromMarkdown(s).length;
@@ -42,4 +42,17 @@ test("a single line longer than the limit is cut without losing characters", () 
   expect(parts.length).toBe(3);
   for (const p of parts) expect(p.length).toBeLessThanOrEqual(TELEGRAM_TEXT_LIMIT);
   expect(parts.join("")).toBe(line);
+});
+
+test("Slack markdown is cut at markdown_text's 12000 characters and plain text at text's 40000", () => {
+  // Japanese text is one character per code point, so the source length is what Slack counts.
+  const markdown = Array.from({ length: 400 }, (_, i) => `第 ${i} 行：${"あ".repeat(40)}`).join("\n");
+  expect(markdown.length).toBeGreaterThan(SLACK_MARKDOWN_LIMIT);
+  const markdownParts = splitText(markdown, SLACK_MARKDOWN_LIMIT, (s) => s.length, true);
+  expect(markdownParts.length).toBeGreaterThan(1);
+  for (const p of markdownParts) expect(p.length).toBeLessThanOrEqual(SLACK_MARKDOWN_LIMIT);
+  expect(markdownParts.join("\n")).toBe(markdown);
+
+  // The same text as plain text is one message.
+  expect(splitText(markdown, SLACK_TEXT_LIMIT, (s) => s.length, false)).toEqual([markdown]);
 });

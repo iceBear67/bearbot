@@ -22,6 +22,7 @@ export type GatewayConfig = {
   platforms: {
     telegram?: { botToken: string };
     qq?: { appId: string; clientSecret: string; sandbox: boolean; markdown: boolean };
+    slack?: { botToken: string; appToken: string };
   };
   console?: { inputFd: number; outputFd: number };
 };
@@ -91,7 +92,7 @@ export function parseConfig(file: string, text: string): GatewayConfig {
   const platformsRaw = r.obj(raw, "platforms", "");
   const platforms: GatewayConfig["platforms"] = {};
   for (const name of Object.keys(platformsRaw)) {
-    if (name !== "telegram" && name !== "qq") {
+    if (name !== "telegram" && name !== "qq" && name !== "slack") {
       throw new ConfigError(file, `platforms.${name} is not a supported platform`);
     }
   }
@@ -106,6 +107,13 @@ export function parseConfig(file: string, text: string): GatewayConfig {
       clientSecret: r.str(qq, "clientSecret", "platforms.qq."),
       sandbox: r.bool(qq, "sandbox", "platforms.qq."),
       markdown: r.bool(qq, "markdown", "platforms.qq."),
+    };
+  }
+  if (platformsRaw.slack !== undefined) {
+    const slack = r.obj(platformsRaw, "slack", "platforms.");
+    platforms.slack = {
+      botToken: r.str(slack, "botToken", "platforms.slack."),
+      appToken: r.str(slack, "appToken", "platforms.slack."),
     };
   }
   let consoleCfg: GatewayConfig["console"];

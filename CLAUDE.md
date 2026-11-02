@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-bearbot connects the pi coding agent (`@earendil-works/pi-coding-agent` 1.4.0) to Telegram, QQ and a local terminal console. Administrators ask the agent in chat to extend itself by writing pi extensions, skills and MCP configuration under the workspace `.pi/`. Each change is checked, snapshotted with git and applied by restarting the agent process. Failures are repaired by a separate recovery agent, and administrators can roll back. One container runs one agent and one workspace.
+bearbot connects the pi coding agent (`@earendil-works/pi-coding-agent` 1.4.0) to Telegram, QQ, Slack and a local terminal console. Administrators ask the agent in chat to extend itself by writing pi extensions, skills and MCP configuration under the workspace `.pi/`. Each change is checked, snapshotted with git and applied by restarting the agent process. Failures are repaired by a separate recovery agent, and administrators can roll back. One container runs one agent and one workspace.
 
-`DESIGN.md` describes the implementation exactly, and code comments cite its sections (for example "DESIGN 5.12"). When code behavior changes, update the matching DESIGN.md section in the same change. `DESIGN_MULTI_WORKSPACE.md` and `DESIGN_STALE.md` are abandoned designs; do not use them. The WeCom adapter (`packages/chat-adapter-wecom/`, DESIGN 6.2.3) is not implemented, and config validation rejects `[platforms.wecom] enabled = true`.
+`DESIGN.md` describes the implementation exactly, and code comments cite its sections (for example "DESIGN 5.12"). When code behavior changes, update the matching DESIGN.md section in the same change. `DESIGN_MULTI_WORKSPACE.md` and `DESIGN_STALE.md` are abandoned designs; do not use them. The WeCom adapter (`packages/chat-adapter-wecom/`, DESIGN 6.2.4) is not implemented, and config validation rejects `[platforms.wecom] enabled = true`.
 
 Several other documents repeat parts of DESIGN.md for different readers. A change that touches behavior, a command, a type in `sdk/index.ts` or a wire field must update every one of them that mentions it, in the same change. Search them for the old name or rule before you finish:
 
@@ -89,7 +89,8 @@ Every node script, including pi, tsc and npm, starts as `<node> <script>`. `<nod
 ### Gateway (`gateway/src/`)
 
 - The daemon generates `/run/bearbot/gateway.json` from `bearbot.toml`; the gateway only reads that file.
-- The gateway receives all messages through `onDirectMessage`, `onNewMention` and `onNewMessage(/[\s\S]*/)` with the `concurrent` strategy. Handlers only write to SQLite and return; queueing, merging and debouncing happen in `bearbot-im`.
+- The gateway receives all messages through `onDirectMessage`, `onNewMention` and `onNewMessage(/[\s\S]*/)` with the `concurrent` strategy; Slack message edits arrive through `onMessageUpdated`. Handlers only write to SQLite and return; queueing, merging and debouncing happen in `bearbot-im`.
+- `platforms.ts` builds the adapters. Slack runs in socket mode through `GatewaySlackAdapter`, which looks up the bot user id and starts the socket inside the same 1 s to 60 s retry loop as Telegram and QQ, and caches channel names looked up in the background (DESIGN 6.2.3).
 - Data is stored in SQLite through drizzle (migrations in `gateway/drizzle/`), and `state/sqlite-state.ts` is the chat-sdk `StateAdapter` on the same database.
 - `commands.ts` handles `/bb` commands, `tokens.ts` the admin tokens, and `console-adapter.ts` the console platform. The console runs on file descriptors 3 and 4, which the daemon hands over from its own stdin and stdout. Its sender is the built-in administrator `console:operator`.
 - `btw.ts` handles `!bb <question>` from admins: it never enters `message_log` and goes to `bearbot-im` as a `btw` request (DESIGN 6.9). `!steer <text>` from admins goes the other way: `ingest.ts` records it as a trigger message with `steer: true`, which `bearbot-im` inserts into the sender's own turn whatever the binding's `interrupt` is (DESIGN 6.10).

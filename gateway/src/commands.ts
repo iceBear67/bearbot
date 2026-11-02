@@ -52,7 +52,7 @@ const OPTION_KEYS = ["trigger", "prefix", "reply", "interrupt"] as const;
 const TRIGGERS: readonly Trigger[] = ["mention", "all", "prefix"];
 const REPLY_MODES: readonly ReplyMode[] = ["final", "each"];
 const INTERRUPTS: readonly Interrupt[] = ["queue", "steer"];
-const IDENTITY = /^(telegram|qq|wecom):\S+$/;
+const IDENTITY = /^(telegram|qq|slack|wecom):\S+$/;
 
 export const HELP_TEXT = [
   "bearbot 管理命令（只有管理员可以使用）：",
