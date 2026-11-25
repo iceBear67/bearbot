@@ -47,7 +47,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 ### 0.3 实现约束
 
-- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.4.0、`chat` 与 `@chat-adapter/*` 4.43.0、`@amatsuka/chat-adapter-qq` 0.2.0、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
+- 使用的版本：Go 1.27、Node.js 24、`@earendil-works/pi-coding-agent` 1.6.0、`chat` 与 `@chat-adapter/*` 4.45.0、`@amatsuka/chat-adapter-qq` 0.3.1、TypeScript 7.0.2（gateway 的编译与第 5.6 节的类型检查）、Python 3.14（给 agent 使用）、uv 0.13.6。企业微信适配器计划使用 `@wecom/aibot-node-sdk` 1.0.7。
 - 出错时就地报错退出，不做静默的降级处理。
 - 测试全部使用真实组件，不使用 mock（第 16 节）。
 - 仓库中已有实现：Go 编写的 `bearbotd`（`daemon/`）、gateway（`gateway/`）、`bearbot-im` 扩展、bearbot SDK、recovery 扩展、三个技能、recovery profile 模板、示例配置与 Dockerfile（目录见第 14 节）。企业微信适配器（第 6.2.4 节，`packages/chat-adapter-wecom`）还没有实现：配置校验拒绝 `[platforms.wecom] enabled = true`，gateway 中也没有引用它的代码。
@@ -92,7 +92,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 版本以 2026-10-26 的 npm 为准。所有结论来自对已发布软件包源码与自带文档的阅读，标注“实测”的已在本机运行验证。
 
-### 2.1 pi（`@earendil-works/pi-coding-agent` 1.4.0）
+### 2.1 pi（`@earendil-works/pi-coding-agent` 1.6.0）
 
 要求 Node.js ≥ 22.19。
 
@@ -105,7 +105,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | RPC 命令中有 `get_state`、`abort`、`new_session`、`compact`；没有 reload；扩展命令以 `/` 开头发送时立即执行，`prompt` 的响应要等命令处理函数执行完才发出。进程启动后第一个 `get_state` 的响应要等全部 `session_start`、`resources_discover` 处理函数执行完（实测）。`abort` 的响应在会话空闲之后才发出，运行无法结束时永远不发出 | daemon 用 `get_state` 判断启动完成与心跳；`bearbot-im` 不在 `session_start` 中等待任何连接（第 7.1 节）；daemon 发送的每个 RPC 请求都以 `rpc_timeout` 为上限 |
 | RPC `new_session` 中止当前运行（运行无法结束时永远得不到响应），然后重建扩展运行时：旧实例收到 `session_shutdown {reason: "new"}` 后失效，全部扩展工厂函数重新执行，已加载过的文件沿用模块缓存中的旧代码，启动后新加的扩展文件不经检查直接加载，新加的坏扩展被静默跳过，新实例的 `session_start` 发出两次（实测） | `/bb new` 不使用 `new_session`，改为生成新的会话 id 并重启进程（第 5.3 节）；`bearbot-im` 仍然要能经受扩展命令引起的运行时替换（第 7.1 节） |
 | RPC 模式下扩展的对话框方法（`select`、`confirm`、`input`、`editor`）发出 `extension_ui_request` 并阻塞，直到客户端回复 `extension_ui_response`；回复 `cancelled: true` 后扩展得到 `undefined`（`select`、`input`、`editor`）或 `false`（`confirm`） | daemon 对所有对话框请求立即回复 `cancelled: true` |
-| `--session-id <id>` 在会话目录中打开确切 id 的会话，不存在时用这个 id 新建（stderr 输出 `Warning: No project session found with id …`）；会话文件要到第一条用户或助手消息时才写入。id 只能包含字母、数字、`.`、`_`、`-`，首尾必须是字母或数字。会话目录默认为 `<agentDir>/sessions/--<cwd 去掉开头的 / 后把 / 换成 ->--/`；工作区 `.pi/settings.json` 中的 `sessionDir` 会改变它，并且这一项在信任决定之前读取（`defaultProjectTrust: "never"`、`-na` 时仍然生效，实测）；`--session-dir <dir>` 优先于 `PI_CODING_AGENT_SESSION_DIR` 与 settings。RPC `get_state` 的响应包含 `sessionId`、`sessionFile`（文件可能还不存在）；`new_session` 的响应只有 `{cancelled}`，不含新会话的 id | daemon 记录当前的会话 id，重启时按这个 id 打开会话，并用 `--session-dir` 把会话目录固定为默认目录（第 5.3 节） |
+| `--session-id <id>` 在会话目录中打开确切 id 的会话，不存在时用这个 id 新建（stderr 输出 `Warning: No project session found with id …`）；会话文件要到第一条用户或助手消息时才写入。id 只能包含字母、数字、`.`、`_`、`-`，首尾必须是字母或数字。会话目录默认为 `<agentDir>/sessions/--<cwd 去掉开头的 / 后把 / 换成 ->--/`；工作区 `.pi/settings.json` 中的 `sessionDir` 会改变它，并且这一项在信任决定之前读取（`defaultProjectTrust: "never"`、`-na` 时仍然生效，实测）；`--session-dir <dir>` 优先于 `PI_CODING_AGENT_SESSION_DIR` 与 settings。没有可用模型时，pi 还会把 `Warning: No models available` 和模型配置文档路径写入 stderr。RPC `get_state` 的响应包含 `sessionId`、`sessionFile`（文件可能还不存在）；`new_session` 的响应只有 `{cancelled}`，不含新会话的 id | daemon 记录当前的会话 id，重启时按这个 id 打开会话，并用 `--session-dir` 把会话目录固定为默认目录（第 5.3 节） |
 | 项目级 `.pi/settings.json`、`.pi/mcp.json`、`.pi/extensions/`、`.pi/skills/`、`.pi/prompts/`、`.pi/themes/`、`.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md`，以及 cwd 与各级上级目录中的 `.agents/skills` 需要项目信任才加载；`$HOME/.agents/skills` 作为用户资源总是加载，不需要信任。CLI 判定顺序：`--approve/--no-approve` → `-e` 扩展与全局扩展处理 `project_trust` → `trust.json` → 全局 settings 的 `defaultProjectTrust`（只有 `"always"` 信任，`"never"`、`"ask"`、未设置都不信任）。cwd 中没有需要信任的资源时视为信任，不发出 `project_trust`（实测：全局扩展返回 `{trusted:"yes"}` 后 RPC 模式加载了项目扩展） | `bearbot-im` 处理 `project_trust`，只信任工作区目录；agent 的扩展、技能、MCP 都放在工作区的 `.pi/` 中 |
 | `AGENTS.md` 加载不需要信任：先加载 profile 中的，再从根目录到 cwd 逐级加载，路径按进程的物理 cwd 计算。每个目录只加载一个文件，优先顺序为 `AGENTS.override.md`、`AGENTS.md`、`AGENTS.MD`、`CLAUDE.md`、`CLAUDE.MD`（实测）。只在会话创建与重新加载时读取，压缩后不重新读取（实测） | 记忆只使用工作区的 `AGENTS.md`；`bearbot-im` 在 `session_start`、`session_compact` 时自己重新读取，并在 `before_agent_start` 中替换 `systemPromptOptions.contextFiles` 中工作区目录的那一项（第 7.5 节）；profile 中的这五个文件名都由位置检查禁止使用 |
 | `before_agent_start` 每次运行都拿到新的 `systemPromptOptions`（含 `contextFiles: {path, content}[]`、`sections`），可以修改；可返回 `{message}` 给本次运行附加一条消息 | 注入 bearbot 说明、最新记忆、诊断信息、回滚提醒 |
@@ -125,7 +125,7 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 | 关闭 stdin 后 pi 以退出码 0 退出，不等待当前运行；第一次 SIGTERM 的退出码为 143，SIGHUP 为 129（实测） | daemon 发起的停止不论退出码如何都不算意外退出 |
 | 环境变量 `PI_SKIP_VERSION_CHECK=1` 关闭版本检查；版本检查只在交互模式中进行，RPC 模式不受它影响 | agent 进程、recovery 与 `bearbotd login` 的环境中都设置；这个变量只对 `bearbotd login` 的交互式 pi 起作用 |
 
-### 2.2 chat-sdk（npm `chat` 4.43.0）
+### 2.2 chat-sdk（npm `chat` 4.45.0）
 
 纯 ESM，`engines.node >= 20`，在 Node 26 上实测导入、初始化、轮询、关闭正常。
 
@@ -152,9 +152,9 @@ bearbot 是一个能自我演进的 IM 机器人。它把 pi coding agent（`@ea
 
 | 平台 | 使用的包 | 接入方式 | 斜杠命令 | 说明 |
 |---|---|---|---|---|
-| Telegram | `@chat-adapter/telegram` 4.43.0（官方） | 长轮询（`mode: "polling"`），不需要公网地址。轮询启动时调用 `deleteWebhook`，它失败时 `initialize()` 拒绝；轮询开始之后的请求错误由适配器自己按退避一直重试 | 支持：消息以 `bot_command` 实体开头时作为 `onSlashCommand` 事件发出，**不会**进入消息处理器；没有注册处理器时被丢弃（实测）。没有这个实体的纯文本 `/bb help` 不是命令 | 会话串 id：私聊 `telegram:<userId>`，群 `telegram:<chatId>`，论坛话题 `telegram:<chatId>:<topicId>`。群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或把机器人设为群管理员。适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（传入 `userName` 会使提及判断失效，实测）。超过 4096 字符的文本被截断并加上 `...`，不分段，文件的说明文字截断到 1024 字符，所以长文本由 gateway 分段（第 6.8 节）。以群组或频道名义发送的消息的发送者见第 6.5 节 |
-| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.2.0（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，已在真实 QQ 服务上验证 |
-| Slack | `@chat-adapter/slack` 4.43.0（官方） | Socket Mode（`mode: "socket"`），不需要公网地址。`initialize()` 在收到 `hello` 帧之后才返回，首次连接失败时拒绝，由 gateway 重试（第 6.1 节）；连接断开后 `@slack/socket-mode` 自己重连 | 不依赖平台注册的斜杠命令：Slack 不会把消息文本里的 `/bb` 当作命令，gateway 用 `raw.text` 识别（第 6.2.3 节）。应用在 Slack 中注册的斜杠命令进入 `onSlashCommand` | 设置 `isDM`（频道 id 以 `D` 开头）；支持群频道、私聊与线程、文件发送与接收、表情、按钮。会话串 id：`slack:<channelId>:<threadTs>`，私聊中顶层消息的 `threadTs` 为空（`slack:<channelId>:`），线程回复使用线程根消息的 `threadTs`。消息事件不带频道名称，由适配器在后台用 `conversations.info` 查询并缓存；机器人的用户 id 由 gateway 在连接前用 `auth.test` 取得，否则无法区分机器人自己的消息。令牌：`[platforms.slack] bot_token`（`xoxb-…`）与 `app_token`（`xapp-…`，需要 `connections:write`） |
+| Telegram | `@chat-adapter/telegram` 4.45.0（官方） | 长轮询（`mode: "polling"`），不需要公网地址。轮询启动时调用 `deleteWebhook`，它失败时 `initialize()` 拒绝；轮询开始之后的请求错误由适配器自己按退避一直重试 | 支持：消息以 `bot_command` 实体开头时作为 `onSlashCommand` 事件发出，**不会**进入消息处理器；没有注册处理器时被丢弃（实测）。没有这个实体的纯文本 `/bb help` 不是命令 | 会话串 id：私聊 `telegram:<userId>`，群 `telegram:<chatId>`，论坛话题 `telegram:<chatId>:<topicId>`。群内要收到普通消息，需要在 BotFather 中用 `/setprivacy` 关闭隐私模式，或把机器人设为群管理员。适配器创建时不传 `userName`，由 `getMe` 取得机器人真实的用户名（传入 `userName` 会使提及判断失效，实测）。超过 4096 字符的文本被截断并加上 `...`，不分段，文件的说明文字截断到 1024 字符，所以长文本由 gateway 分段（第 6.8 节）。以群组或频道名义发送的消息的发送者见第 6.5 节 |
+| QQ 官方机器人 | `@amatsuka/chat-adapter-qq` 0.3.1（社区） | WebSocket（`mode: "socket"`），不需要公网地址。首次连接（取得 token、请求 `/gateway/bot`、打开 WebSocket）失败时 `initialize()` 拒绝，适配器不重试（实测），由 gateway 重试（第 6.1 节） | 支持：`/help` 与 `@bot /help` 都进入 `onSlashCommand` | 设置 `isDM`、`isMention`；支持群消息（`GROUP_AT_MESSAGE_CREATE`，开通后还有 `GROUP_MESSAGE_CREATE`）、单聊、文件发送与接收、按钮。会话串 id：`qq:c2c/<openid>`、`qq:group/<group_openid>`。`message.text` 去掉了 markdown 标记，原始文本在 `raw.content` 中；附件只有 URL，没有 `fetchData`；markdown 消息（`msg_type` 2）需要平台单独开通的权限；被回复的消息只给出它的文本与引用索引，没有发送者；`postQQMessage` 的 `messageReference` 原样映射为发送请求中的 `message_reference`（引用回复）。单个维护者，固定版本使用，已在真实 QQ 服务上验证 |
+| Slack | `@chat-adapter/slack` 4.45.0（官方） | Socket Mode（`mode: "socket"`），不需要公网地址。`initialize()` 在收到 `hello` 帧之后才返回，首次连接失败时拒绝，由 gateway 重试（第 6.1 节）；连接断开后 `@slack/socket-mode` 自己重连 | 不依赖平台注册的斜杠命令：Slack 不会把消息文本里的 `/bb` 当作命令，gateway 用 `raw.text` 识别（第 6.2.3 节）。应用在 Slack 中注册的斜杠命令进入 `onSlashCommand` | 设置 `isDM`（频道 id 以 `D` 开头）；支持群频道、私聊与线程、文件发送与接收、表情、按钮。会话串 id：`slack:<channelId>:<threadTs>`，私聊中顶层消息的 `threadTs` 为空（`slack:<channelId>:`），线程回复使用线程根消息的 `threadTs`。消息事件不带频道名称，由适配器在后台用 `conversations.info` 查询并缓存；机器人的用户 id 由 gateway 在连接前用 `auth.test` 取得，否则无法区分机器人自己的消息。令牌：`[platforms.slack] bot_token`（`xoxb-…`）与 `app_token`（`xapp-…`，需要 `connections:write`） |
 
 QQ 平台的身份说明：QQ 开放平台在群内给出的是 `member_openid`，在单聊中给出的是 `user_openid`，两者不同。所以同一个人在 QQ 群和 QQ 单聊中是两个身份，要成为管理员需要分别领取令牌，或由已有管理员用 `/bb admin add` 添加。
 
@@ -409,7 +409,7 @@ daemon/
 
 状态机、incident、rollback 的流程都在 `agent` 包的一个生命周期 goroutine 上执行，`incident` 与 `rollback` 通过 `agent` 提供的接口访问状态与进程。
 
-依赖（`go.mod`）：`github.com/spf13/cobra` v1.10.2、`github.com/pelletier/go-toml/v2` v2.4.3、`gopkg.in/natefinch/lumberjack.v2` v2.2.1、`golang.org/x/sys` v0.49.0、`golang.org/x/term` v0.47.0、`github.com/sourcegraph/jsonrpc2` v0.2.3（`gateway-ctl.sock`）、`github.com/aymanbagabas/go-udiff` v0.4.1（`CLASSIFIER.md` 恢复通知中的差异）、`github.com/creack/pty` v1.1.24（只在测试中使用）。
+依赖（`go.mod`）：`github.com/spf13/cobra` v1.10.2、`github.com/pelletier/go-toml/v2` v2.4.3、`gopkg.in/natefinch/lumberjack.v2` v2.2.1、`golang.org/x/sys` v0.50.0、`golang.org/x/term` v0.48.0、`github.com/sourcegraph/jsonrpc2` v0.2.3（`gateway-ctl.sock`）、`github.com/aymanbagabas/go-udiff` v0.4.2（`CLASSIFIER.md` 恢复通知中的差异）、`github.com/creack/pty` v1.1.24（只在测试中使用）。
 
 ### 5.2 启动顺序
 
@@ -592,6 +592,7 @@ pi 自己生成的会话 id 是 UUIDv7（`session-manager.js` 中的 `createSess
    ```
 
    - `paths` 映射 pi 运行时提供给扩展的全部 22 个模块名：`@earendil-works/pi-coding-agent`、`pi-agent-core`、`pi-tui`、`pi-ai`（以及 `pi-ai/compat`、`pi-ai/models`、`pi-ai/oauth`、`pi-ai/providers/all`），同样这些名称的 `@mariozechner/*` 旧名称，`typebox`、`typebox/compile`、`typebox/value` 与 `@sinclair/typebox*` 旧名称。只映射一部分时，pi 自带的示例扩展检查失败（TS2307），运行时却能加载。嵌套的包（`typebox`、`pi-ai`、`pi-tui`、`pi-agent-core`）从 pi 包的真实路径开始按 Node 的查找规则定位：全局安装时它们在 pi 包自己的 `node_modules` 中，工作区安装时被提升到上级目录。
+   - `pi-ai` 和 `pi-ai/compat` 在扩展中均提供 pi 的兼容 API 和 TypeBox 版 `StringEnum`。类型检查使用 pi 的 `pi-ai-extension-view.d.ts`；`sdk/pi-ai-compat.d.ts` 通过仅用于类型检查的 `#pi-ai-compat` 引用原包声明，使 `/compat` 的导出也能正确解析。
    - TypeScript 7 中 `types` 默认为空，所以要写明 `types` 与 `typeRoots`；`include` 以 `**` 结尾时 tsc 报 TS5010 与 TS18003，所以写成 `**/*`。`**/*` 不匹配以 `.` 开头的文件与目录，pi 同样跳过它们（例如 recovery 使用的 `.disabled/`）；`.js` 扩展不在类型检查范围内。SDK 放在 `files` 中，扩展目录为空时 tsc 不会因为没有输入文件而失败。
    - 以 `bearbot` 身份、cwd `/bearbot/workspace` 执行 `<node> /opt/bearbot/toolchain/node_modules/.bin/tsc -p checks/<检查id>/tsconfig.json --pretty false`（tsconfig 中的 `"pretty": false` 不起作用），环境变量为 `HOME`、`PATH` 与 daemon 设置了的 `TZ`、`LANG`，最长 5 分钟，超时按类型检查失败处理。输出写入 `checks/<检查id>/tsc.out`，报告中保留前 20000 个字符。
    - 退出码为 0 时通过；否则按 `^(?:(.+)\((\d+),(\d+)\): )?error (TS\d+): (.*)$` 解析 stdout 中的诊断，以空格开头的行接在上一条诊断后面，相对路径按 cwd 转为绝对路径。任一文件有语法错误时 tsc 只报告语法错误。
@@ -904,7 +905,7 @@ daemon 在启动顺序第 5 步（第 5.2 节）判断控制台是否启用：`[
 
 ## 6. gateway
 
-TypeScript（ESM），Node 24，用 TypeScript 7.0.2 编译（`rootDir` 为 `src`，输出 `dist/main.js`），代码位于 `/opt/bearbot/gateway`。运行时依赖：`chat`、`@chat-adapter/telegram`、`@chat-adapter/shared`（4.43.0）、`@amatsuka/chat-adapter-qq`（0.2.0）、`better-sqlite3`、`drizzle-orm`（迁移用 `drizzle-kit` 生成，放在 `gateway/drizzle/`，启动时用 `drizzle-orm/better-sqlite3/migrator` 执行，目录按模块自身的位置找到）、`pino`、`hono` 与 `@hono/node-server`（只在配置了 webhook 模式时启用 HTTP 服务）、`string-argv` 与 `yargs-parser`（`/bb` 参数解析）、`@scure/base`（令牌的 base32 编码）、`mime`（按文件名取得 MIME 类型）。开发依赖：`typescript`、`@types/node`、`@types/better-sqlite3`、`@types/yargs-parser`、`drizzle-kit`、`vitest`、`@chat-adapter/state-memory`（只用于对比测试）。
+TypeScript（ESM），Node 24，用 TypeScript 7.0.2 编译（`rootDir` 为 `src`，输出 `dist/main.js`），代码位于 `/opt/bearbot/gateway`。运行时依赖：`chat`、`@chat-adapter/telegram`、`@chat-adapter/shared`（4.45.0）、`@amatsuka/chat-adapter-qq`（0.3.1）、`better-sqlite3`、`drizzle-orm`（迁移用 `drizzle-kit` 生成，放在 `gateway/drizzle/`，启动时用 `drizzle-orm/better-sqlite3/migrator` 执行，目录按模块自身的位置找到）、`pino`、`hono` 与 `@hono/node-server`（只在配置了 webhook 模式时启用 HTTP 服务）、`string-argv` 与 `yargs-parser`（`/bb` 参数解析）、`@scure/base`（令牌的 base32 编码）、`mime`（按文件名取得 MIME 类型）。开发依赖：`typescript`、`@types/node`、`@types/better-sqlite3`、`@types/yargs-parser`、`drizzle-kit`、`vitest`、`@chat-adapter/state-memory`（只用于对比测试）。
 
 进程：`<node> dist/main.js --config <gateway.json>`，命令行只接受 `--config`。`gateway.json`（第 5.2 节）按字段严格校验，`platforms` 中只能有 `telegram`、`qq`、`slack`，`logLevel` 只能是 `debug`、`info`、`warn`、`error`，出错时退出。日志为 pino 的 JSON 行，写到 stdout（daemon 写入 `gateway.log`），每行带 `component: "gateway"`，chat-sdk 的子日志另带 `scope`。
 
@@ -2105,7 +2106,7 @@ RUN npm run build -w gateway \
 FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM node:24-bookworm-slim
-ARG PI_VERSION=1.4.0
+ARG PI_VERSION=1.6.0
 ARG TYPESCRIPT_VERSION=7.0.2
 ARG PYTHON_VERSION=3.14.10
 ARG BEARBOT_UID=1000
@@ -2208,7 +2209,7 @@ bearbot/
 ├── DESIGN.md                             本文档；DESIGN_MULTI_WORKSPACE.md、DESIGN_STALE.md 不作为实现依据（第 0.3 节）
 ├── Dockerfile  .dockerignore             第 13 节
 ├── .github/workflows/docker.yml          推送 v* 标签时构建并发布镜像（第 13 节）
-├── package.json  package-lock.json       npm workspaces：gateway、packages/*；开发依赖 pi 1.4.0、typescript 7.0.2、@types/node、vitest；allowScripts
+├── package.json  package-lock.json       npm workspaces：gateway、packages/*；开发依赖 pi 1.6.0、typescript 7.0.2、@types/node、vitest；allowScripts
 ├── config/bearbot.example.toml           第 12 节
 ├── daemon/                               Go 模块 bearbot/daemon（第 5.1 节）
 │   ├── go.mod  go.sum

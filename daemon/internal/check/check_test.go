@@ -145,7 +145,7 @@ func TestTSConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(aliases) != 22 {
+	if len(aliases) != 23 {
 		t.Fatalf("%d aliases", len(aliases))
 	}
 	if aliases["@earendil-works/pi-coding-agent"] != filepath.Join(f.env.Paths.PiPackage, "dist/index.d.ts") {
@@ -155,7 +155,7 @@ func TestTSConfig(t *testing.T) {
 	if aliases["typebox/value"] != filepath.Join(f.env.Repo, "node_modules/typebox/build/value/index.d.mts") {
 		t.Errorf("typebox/value = %s", aliases["typebox/value"])
 	}
-	if aliases["@mariozechner/pi-ai"] != filepath.Join(f.env.Repo, "node_modules/@earendil-works/pi-ai/dist/compat.d.ts") || aliases["@sinclair/typebox"] != aliases["typebox"] {
+	if aliases["@mariozechner/pi-ai"] != filepath.Join(f.env.Paths.PiPackage, "dist/core/extensions/pi-ai-extension-view.d.ts") || aliases["@sinclair/typebox"] != aliases["typebox"] {
 		t.Errorf("aliases = %v", aliases)
 	}
 	data, err := TSConfig(f.env.Paths)
@@ -185,6 +185,7 @@ func TestTSConfig(t *testing.T) {
 }
 
 const goodExtension = `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { StringEnum, type AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -199,9 +200,10 @@ export default function (pi: ExtensionAPI) {
     name: "good_echo",
     label: "Echo",
     description: "echo the text",
-    parameters: Type.Object({ text: Type.String() }),
+    parameters: Type.Object({ text: Type.String(), role: Type.Optional(StringEnum(["assistant"] as const)) }),
     async execute(_id, params) {
-      return { content: [{ type: "text", text: helper(params.text) + Value.Check(Type.String(), params.text) }], details: { keep, seen, timer } };
+      const role: AssistantMessage["role"] | undefined = params.role;
+      return { content: [{ type: "text", text: helper(params.text) + Value.Check(Type.String(), params.text) }], details: { keep, seen, timer, role } };
     },
   });
 }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-bearbot connects the pi coding agent (`@earendil-works/pi-coding-agent` 1.4.0) to Telegram, QQ, Slack and a local terminal console. Administrators ask the agent in chat to extend itself by writing pi extensions, skills and MCP configuration under the workspace `.pi/`. Each change is checked, snapshotted with git and applied by restarting the agent process. Failures are repaired by a separate recovery agent, and administrators can roll back. One container runs one agent and one workspace.
+bearbot connects the pi coding agent (`@earendil-works/pi-coding-agent` 1.6.0) to Telegram, QQ, Slack and a local terminal console. Administrators ask the agent in chat to extend itself by writing pi extensions, skills and MCP configuration under the workspace `.pi/`. Each change is checked, snapshotted with git and applied by restarting the agent process. Failures are repaired by a separate recovery agent, and administrators can roll back. One container runs one agent and one workspace.
 
 `DESIGN.md` describes the implementation exactly, and code comments cite its sections (for example "DESIGN 5.12"). When code behavior changes, update the matching DESIGN.md section in the same change. `DESIGN_MULTI_WORKSPACE.md` and `DESIGN_STALE.md` are abandoned designs; do not use them. The WeCom adapter (`packages/chat-adapter-wecom/`, DESIGN 6.2.4) is not implemented, and config validation rejects `[platforms.wecom] enabled = true`.
 

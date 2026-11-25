@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, test } from "vitest";
-import { commandNames, PiRpc, repoRoot } from "./pi-rpc.ts";
+import { commandNames, noModelsWarning, PiRpc, repoRoot } from "./pi-rpc.ts";
 
 const skillsDir = join(repoRoot, "skills");
 const skillNames = ["bearbot-extension-dev", "bearbot-middleware", "bearbot-recovery"];
@@ -64,7 +64,7 @@ describe("自带技能", () => {
 		expect(command.source).toBe("skill");
 		expect(command.description).toBe(frontmatterDescription(name));
 		expect(await pi.close()).toEqual({ code: 0, signal: null });
-		expect(pi.stderr).toBe("");
+		expect(pi.stderr.trim()).toBe(noModelsWarning);
 	}, 30_000);
 });
 

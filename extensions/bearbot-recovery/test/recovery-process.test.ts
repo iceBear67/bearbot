@@ -1,7 +1,7 @@
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { commandNames, PiRpc, repoRoot } from "./pi-rpc.ts";
+import { commandNames, noModelsWarning, PiRpc, repoRoot } from "./pi-rpc.ts";
 
 const recoveryExt = join(repoRoot, "extensions", "bearbot-recovery");
 const recoverySkill = join(repoRoot, "skills", "bearbot-recovery");
@@ -168,7 +168,7 @@ describe("recovery 进程（contracts 2.3 的启动参数）", () => {
 		expect(pi.records.filter((record) => record.type === "extension_error")).toEqual([]);
 		const exit = await pi.close();
 		expect(exit).toEqual({ code: 0, signal: null });
-		expect(pi.stderr.trim()).toBe(`Warning: No project session found with id '${incidentId}'; creating a new session with that id.`);
+		expect(pi.stderr.trim()).toBe(`Warning: No project session found with id '${incidentId}'; creating a new session with that id.\n${noModelsWarning}`);
 	}, 30_000);
 
 	test.each(["BEARBOT_AGENT_SOCKET", "BEARBOT_INCIDENT_ID"])("缺少 %s 时 recovery 扩展加载失败，进程以 1 退出", async (name) => {

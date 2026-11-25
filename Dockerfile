@@ -20,7 +20,7 @@ RUN npm run build -w gateway \
 FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
 
 FROM node:24-bookworm-slim
-ARG PI_VERSION=1.4.0
+ARG PI_VERSION=1.6.0
 ARG TYPESCRIPT_VERSION=7.0.2
 ARG PYTHON_VERSION=3.14.10
 ARG BEARBOT_UID=1000

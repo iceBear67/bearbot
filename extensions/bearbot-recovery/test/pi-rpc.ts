@@ -24,6 +24,8 @@ function findRepoRoot(): string {
 
 export const repoRoot = findRepoRoot();
 export const piBin = join(repoRoot, "node_modules", ".bin", "pi");
+const piDocs = join(repoRoot, "node_modules", "@earendil-works", "pi-coding-agent", "docs");
+export const noModelsWarning = `Warning: No models available. Use /login to log into a provider via OAuth or API key. See:\n  ${piDocs}/providers.md\n  ${piDocs}/models.md`;
 
 type Waiter = { predicate: (record: RpcRecord) => boolean; resolve: (record: RpcRecord) => void; reject: (error: Error) => void };
 

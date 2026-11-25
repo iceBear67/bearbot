@@ -167,8 +167,8 @@ func findPackage(start, name string) (string, error) {
 	}
 }
 
-// Aliases returns the 22 module names pi gives to extensions mapped to their declaration files (contracts 9.2,
-// toolchain.md 1.3). The nested packages are found with Node's lookup rule from realpath(PiPackage).
+// Aliases maps pi's 22 extension module names and the private import in sdk/pi-ai-compat.d.ts to their declarations.
+// The nested packages are found with Node's lookup rule from realpath(PiPackage).
 func Aliases(p layout.Paths) (map[string]string, error) {
 	real, err := filepath.EvalSymlinks(p.PiPackage)
 	if err != nil {
@@ -185,7 +185,7 @@ func Aliases(p layout.Paths) (map[string]string, error) {
 	codingAgent := filepath.Join(p.PiPackage, "dist/index.d.ts")
 	agentCore := filepath.Join(pkg["@earendil-works/pi-agent-core"], "dist/index.d.ts")
 	tui := filepath.Join(pkg["@earendil-works/pi-tui"], "dist/index.d.ts")
-	aiCompat := filepath.Join(pkg["@earendil-works/pi-ai"], "dist/compat.d.ts")
+	aiExtension := filepath.Join(p.PiPackage, "dist/core/extensions/pi-ai-extension-view.d.ts")
 	aiModels := filepath.Join(pkg["@earendil-works/pi-ai"], "dist/models.d.ts")
 	aiOauth := filepath.Join(pkg["@earendil-works/pi-ai"], "dist/oauth.d.ts")
 	aiProviders := filepath.Join(pkg["@earendil-works/pi-ai"], "dist/providers/all.d.ts")
@@ -197,12 +197,14 @@ func Aliases(p layout.Paths) (map[string]string, error) {
 		aliases[scope+"/pi-coding-agent"] = codingAgent
 		aliases[scope+"/pi-agent-core"] = agentCore
 		aliases[scope+"/pi-tui"] = tui
-		aliases[scope+"/pi-ai"] = aiCompat
-		aliases[scope+"/pi-ai/compat"] = aiCompat
+		aliases[scope+"/pi-ai"] = aiExtension
+		aliases[scope+"/pi-ai/compat"] = aiExtension
 		aliases[scope+"/pi-ai/models"] = aiModels
 		aliases[scope+"/pi-ai/oauth"] = aiOauth
 		aliases[scope+"/pi-ai/providers/all"] = aiProviders
 	}
+	aliases["@earendil-works/pi-ai/compat"] = filepath.Join(filepath.Dir(p.SDKFile), "pi-ai-compat.d.ts")
+	aliases["#pi-ai-compat"] = filepath.Join(pkg["@earendil-works/pi-ai"], "dist/compat.d.ts")
 	for _, name := range []string{"typebox", "@sinclair/typebox"} {
 		aliases[name] = typebox
 		aliases[name+"/compile"] = typeboxCompile
