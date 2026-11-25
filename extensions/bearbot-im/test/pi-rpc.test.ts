@@ -7,7 +7,7 @@ afterAll(removeTempDirs);
 
 // Tests that start the real pi with bearbot-im: `pi --mode rpc --no-session -e <bearbot-im>` (contracts 2.2).
 
-const BEARBOT_TOOLS = ["im_send", "im_history", "im_user", "im_avatar", "im_targets", "bearbot_status", "bearbot_logs", "bearbot_check", "bearbot_apply", "bearbot_snapshot"];
+const BEARBOT_TOOLS = ["im_send", "im_edit", "im_delete", "im_history", "im_user", "im_avatar", "im_targets", "bearbot_status", "bearbot_logs", "bearbot_check", "bearbot_apply", "bearbot_snapshot"];
 
 const PROBE = `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { useBearbot } from ${JSON.stringify(SDK_FILE)};

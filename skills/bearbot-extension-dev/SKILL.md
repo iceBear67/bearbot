@@ -147,7 +147,7 @@ export default function (pi: ExtensionAPI) {
 以下情况 pi 以退出码 1 退出，agent 进程无法启动；检查的试运行能发现它们：
 
 - 语法错误、模块顶层或工厂函数抛出异常、没有默认导出的工厂函数。
-- 工具同名：两个扩展在工厂函数中注册同名工具时启动失败（stderr 中是 `Tool "<名称>" conflicts with <路径>`）。会这样冲突的有 `bearbot-im` 的 `im_send`、`im_history`、`im_user`、`im_avatar`、`im_targets`、`bearbot_status`、`bearbot_logs`、`bearbot_check`、`bearbot_apply`、`bearbot_snapshot`，以及其他扩展的工具（`bearbot_status` 列出当前全部工具）。
+- 工具同名：两个扩展在工厂函数中注册同名工具时启动失败（stderr 中是 `Tool "<名称>" conflicts with <路径>`）。会这样冲突的有 `bearbot-im` 的 `im_send`、`im_edit`、`im_delete`、`im_history`、`im_user`、`im_avatar`、`im_targets`、`bearbot_status`、`bearbot_logs`、`bearbot_check`、`bearbot_apply`、`bearbot_snapshot`，以及其他扩展的工具（`bearbot_status` 列出当前全部工具）。
 - 与内置工具同名不会启动失败，扩展的工具会替换掉内置工具：注册 `read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`、`powershell` 时，扩展的工具直接取代同名的内置工具；注册 `codemode` 或 `tool_search` 时，pi 不加载对应的内置扩展，只在 stderr 写一条 `Warning: Extension package "builtin:…"`，检查照常通过。注册命令 `mcp` 时同样如此：pi 不加载内置的 MCP 扩展，`mcp.json` 中的服务器都不会连接。MCP 工具 `mcp__<服务器>__<工具>` 在连接服务器之后才注册，与它同名同样不会被检查发现。这些名称一律不要使用，工具名加上扩展名作为前缀，例如 `weather_today`。
 - flag 同名（`pi.registerFlag`）同样导致启动失败。命令同名不会失败，但两个命令都会被改名为 `名称:1`、`名称:2`（命令 `mcp` 见上一条）。
 - 工具的 `parameters` 不是对象 schema（用 `Type.Object({...})`）。

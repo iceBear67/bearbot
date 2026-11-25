@@ -78,7 +78,11 @@ function formatHistory(target: string, messages: WireMessage[]): string {
   if (messages.length === 0) return `${target} 没有聊天记录`;
   const lines = [`<history target="${escapeAttr(target)}">`];
   for (const wire of messages) {
-    lines.push(renderMessage(messageFromWire(wire), { seq: wire.seq.join(","), direction: wire.direction ?? "in" }));
+    lines.push(renderMessage(messageFromWire(wire), {
+      seq: wire.seq.join(","),
+      direction: wire.direction ?? "in",
+      ...(wire.direction === "out" ? { ref: `${wire.thread}|${wire.id}` } : {}),
+    }));
   }
   lines.push("</history>");
   return lines.join("\n");
@@ -124,6 +128,36 @@ export function registerTools(pi: ExtensionAPI, host: ToolsHost): void {
       const result = await host.sendOutbound(reply);
       if (result.kind === "dropped") return text(`出站中间件 ${result.by} 丢弃了这条消息：${result.reason}`, result);
       return text(`已发送到 ${result.reply.target}（ref ${result.ref}）`, { ref: result.ref });
+    },
+  });
+
+  pi.registerTool({
+    name: "im_edit",
+    label: "IM 编辑消息",
+    description: "编辑机器人已发送的消息。ref 使用 im_send 返回的引用或 im_history 中出站消息的 ref。text 是替换后的完整 Markdown 正文。平台不支持编辑时返回错误。",
+    promptSnippet: "编辑机器人已发送的消息正文",
+    parameters: Type.Object({
+      ref: Type.String({ minLength: 1, description: "消息引用，格式为 <会话串 id>|<消息 id>" }),
+      text: Type.String({ minLength: 1, description: "替换后的完整 Markdown 正文" }),
+    }),
+    async execute(_id, { ref, text: markdown }) {
+      if (markdown.trim() === "") throw new Error("text 不能为空");
+      await host.gateway.request("edit", { ref, markdown });
+      return text(`已编辑消息 ${ref}`, { ref });
+    },
+  });
+
+  pi.registerTool({
+    name: "im_delete",
+    label: "IM 删除消息",
+    description: "删除指定的聊天消息。ref 使用 im_send 返回的引用或 im_history 中出站消息的 ref。平台不支持删除或机器人没有删除权限时返回错误。",
+    promptSnippet: "删除指定的聊天消息",
+    parameters: Type.Object({
+      ref: Type.String({ minLength: 1, description: "消息引用，格式为 <会话串 id>|<消息 id>" }),
+    }),
+    async execute(_id, { ref }) {
+      await host.gateway.request("delete", { ref });
+      return text(`已删除消息 ${ref}`, { ref });
     },
   });
 

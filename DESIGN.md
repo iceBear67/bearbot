@@ -1381,7 +1381,9 @@ gateway 通知 message
 | 工具 | 说明 |
 |---|---|
 | `im_send` | 参数 `{text?, files?: string[], target?, replyTo?}`，`text` 为 markdown，`text` 与 `files` 不能都为空。`target` 默认为本轮的 `origin`（本轮没有 `origin` 时必须给出），可以指定其他已绑定的频道或会话串、管理员的通知会话串。`files` 为相对工作区目录或绝对的路径，交给 gateway 前换算为绝对路径。`replyTo` 为要引用回复的消息 id（`<message>` 的 `id`、旁观消息中“（消息 …）”里的 id、`im_history` 中的 id），不能为空字符串，原样作为 gateway `post` 的 `replyTo`（第 6.8 节），不填时不引用；gateway 找不到这条消息时作为工具错误返回。经过出站中间件（第 8.3 节）；被丢弃时工具结果中说明由哪个中间件丢弃、原因是什么 |
-| `im_history` | 参数 `{target?, limit?, before?}`：`target` 默认为本轮的 `origin`，`limit` 为 1～200（默认 20），`before` 为 `seq`。返回 `<history target="…">` 包住的 `<message>` 列表，每条另有 `seq` 与 `direction`（`in` 或 `out`）属性 |
+| `im_edit` | 参数 `{ref, text}`。`ref` 使用 `im_send` 返回的引用或 `im_history` 中出站消息的 `ref`。`text` 为替换后的完整 Markdown 正文，必须包含非空白字符。直接调用 gateway 的 `edit`（第 6.8 节），成功时返回原引用，平台不支持编辑时返回工具错误 |
+| `im_delete` | 参数 `{ref}`，消息引用的格式与 `im_edit` 相同。直接调用 gateway 的 `delete`（第 6.8 节），成功时返回原引用。平台不支持删除或机器人缺少权限时返回工具错误。启用 classifier 时，成员回合中的删除操作优先使用管理员规则；未匹配时交给模型判断（第 7.10 节） |
+| `im_history` | 参数 `{target?, limit?, before?}`：`target` 默认为本轮的 `origin`，`limit` 为 1～200（默认 20），`before` 为 `seq`。返回 `<history target="…">` 包住的 `<message>` 列表，每条另有 `seq` 与 `direction`（`in` 或 `out`）属性。出站消息还带有 `ref`，可用于编辑或删除该条消息 |
 | `im_user` | 参数 `{identity}`，返回 `<user identity="…" user-id="…">` 包住的资料（名字、用户名、是否机器人，有邮箱与头像地址时一并给出），没有资料时说明查不到。调用 gateway 的 `user`（第 6.8 节） |
 | `im_avatar` | 参数 `{identity}`，取得头像并把图片作为 `ImageContent` 交给模型，文本部分说明保存位置、MIME 类型与字节数；没有头像时说明。gateway 把图片保存在工作区 `inbox/` 中，`bearbot-im` 按 `path` 读取（第 6.8 节） |
 | `im_targets` | 参数 `{}`。列出已绑定的频道（名称、平台、私聊或群）与最近活动的会话串 |
@@ -1463,7 +1465,7 @@ gateway 通知 message
 
    | 工具 | 结果 |
    |---|---|
-   | `im_send`、`im_history`、`im_user`、`im_avatar`、`im_targets` | 放行 |
+   | `im_send`、`im_edit`、`im_history`、`im_user`、`im_avatar`、`im_targets` | 放行 |
    | `tool_search` | pi 自己的工具（`sourceInfo.path` 为 `builtin:tool-search`）时放行 |
    | `read`、`grep`、`find`、`ls` | pi 自己的工具（`builtin:<名称>`）时，参数 `path`（缺省为 `.`）按 pi 的规则解析（Unicode 空格、开头的 `@`、`~`、`file://`，相对路径按 cwd），经 `realpath` 后位于工作区目录内时放行，否则拒绝；`realpath` 失败（例如路径不存在）时拒绝 |
    | `write`、`edit`、`bearbot_*` | 拒绝（按名称判断） |

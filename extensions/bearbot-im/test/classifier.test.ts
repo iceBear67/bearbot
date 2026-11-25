@@ -71,7 +71,7 @@ beforeAll(() => {
 
 describe("built-in rules", () => {
   test("im tools and tool_search are allowed", () => {
-    for (const name of ["im_send", "im_history", "im_targets", "im_user", "im_avatar", "tool_search"]) {
+    for (const name of ["im_send", "im_edit", "im_history", "im_targets", "im_user", "im_avatar", "tool_search"]) {
       expect(builtinDecision(name, {}, workspace, workspace, tool(name)).kind).toBe("allow");
     }
   });
@@ -121,6 +121,7 @@ describe("built-in rules", () => {
       expect(builtinDecision(name, {}, workspace, workspace, tool(name)).kind).toBe("deny");
     }
     expect(builtinDecision("codemode", { code: "1" }, workspace, workspace, tool("codemode"))).toMatchObject({ kind: "allow" });
+    expect(builtinDecision("im_delete", { ref: "console:main|1" }, workspace, workspace, tool("im_delete")).kind).toBe("model");
     expect(builtinDecision("bash", {}, workspace, workspace, tool("bash")).kind).toBe("model");
     // Tools that are not registered (for example an MCP server that is not connected) have no ToolInfo.
     for (const name of ["mcp__srv__ping", "my_tool"]) {
