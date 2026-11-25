@@ -1163,7 +1163,7 @@ QQ 事件的发送者：QQ 适配器在事件中找不到任何 openid 时把用
 | `/bb`、`/bb help` | 命令列表 |
 | `/bb here` | 当前频道 id 与名称、会话串 id、是否私聊、绑定设置、gateway 最近收到的 agent 状态 |
 | `/bb attach [--trigger mention\|all\|prefix] [--prefix <文本>] [--reply final\|each] [--interrupt queue\|steer]` | 绑定当前频道；没有给出的设置取已有绑定的值，新绑定时私聊默认 `all`、群默认 `mention`，`reply` 默认 `final`，`interrupt` 默认 `queue`。`trigger` 为 `prefix` 时必须有前缀。取值不在范围内时返回错误。同时更新频道名称 |
-| `/bb detach` | 解除当前频道的绑定；控制台频道不能解除（第 6.2.5 节），没有绑定时返回错误 |
+| `/bb detach [频道ID]` | 解除指定频道的绑定，省略 ID 时使用当前频道。参数使用 `/bb status` 中的完整频道 ID。目标为控制台频道（第 6.2.5 节）或没有绑定时返回错误。解除成功后发送 `bindings.changed`，并在发起命令的会话中回复已解除绑定的频道 ID |
 | `/bb new` | 开启新会话（daemon 的 `session {action: "new"}`，第 5.3 节）。所有绑定的频道都会改用新会话 |
 | `/bb stop` | 中止正在进行的回合（`session {action: "abort"}`）；有回合时回复中说明该回合由哪个会话串发起（扩展发起、没有回复目标时写明）、角色与开始时间，这些来自 `bearbot-im` 的 `turn` 通知（第 6.8 节）；队列中排队的消息不受影响 |
 | `/bb compact [说明]` | 压缩当前会话（`session {action: "compact", instructions?}`） |

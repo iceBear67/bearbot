@@ -135,6 +135,22 @@ function admins(): string[] {
   return repo.adminIdentities().sort();
 }
 
+test("an admin can detach a group from a private chat or detach the current group", async () => {
+  const channelId = `telegram:${FORUM.id}`;
+  const dm = { id: ALICE.id, type: "private" as const };
+  repo.putAdmin({ identity: "telegram:111", displayName: "Alice", notifyThread: "telegram:111", addedBy: "test" });
+  await feed({ chat: FORUM, from: ALICE, ...command("/bb attach") });
+  await feed({ chat: { id: BOB.id, type: "private" }, from: BOB, ...command(`/bb detach ${channelId}`) });
+  expect(repo.binding(channelId)).toBeDefined();
+  await feed({ chat: dm, from: ALICE, ...command(`/bb detach ${channelId}`) });
+  expect(repo.binding(channelId)).toBeUndefined();
+
+  await feed({ chat: FORUM, from: ALICE, ...command("/bb attach") });
+  expect(repo.binding(channelId)).toBeDefined();
+  await feed({ chat: FORUM, from: ALICE, ...command("/bb detach") });
+  expect(repo.binding(channelId)).toBeUndefined();
+});
+
 test("in a forum topic only an explicit reply selects the user for /bb admin add", async () => {
   repo.putAdmin({ identity: "telegram:111", displayName: "Alice", notifyThread: "telegram:111", addedBy: "test" });
   const root = { message_id: 7, date: 1, chat: FORUM, from: TOPIC_CREATOR, text: "topic" };

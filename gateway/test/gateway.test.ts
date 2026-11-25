@@ -793,8 +793,15 @@ describe("/bb commands from the console", () => {
     await gw.waitConsole(/--trigger 的取值只能是 mention、all、prefix/);
     gw.type("/bb attach --foo");
     await gw.waitConsole(/多余的参数：--foo/);
-    gw.type("/bb detach");
+    gw.type("/bb detach telegram:-100123 extra");
+    await gw.waitConsole(/多余的参数：extra\n/);
+    gw.type("/bb detach telegram:-100123");
+    await gw.waitConsole(/频道 telegram:-100123 没有绑定\n/);
+    gw.type("/bb detach console:main");
     await gw.waitConsole(/控制台频道始终绑定/);
+    const beforeDetach = nthOf(gw);
+    gw.type("/bb detach");
+    await gw.waitConsole(/控制台频道始终绑定/, beforeDetach);
     gw.type("/bb here");
     await gw.waitConsole(/频道：console:main（控制台）\n会话串：console:main\n私聊：是\n绑定：trigger=all，reply=each，interrupt=steer\nagent 状态：running/);
 

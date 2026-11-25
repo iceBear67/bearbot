@@ -59,7 +59,7 @@ export const HELP_TEXT = [
   "/bb help：命令列表",
   "/bb here：当前频道、会话串、绑定设置与 agent 状态",
   "/bb attach [--trigger mention|all|prefix] [--prefix <文本>] [--reply final|each] [--interrupt queue|steer]：绑定当前频道，私聊默认 all，群默认 mention；已绑定时按参数修改设置",
-  "/bb detach：解除当前频道的绑定",
+  "/bb detach [频道ID]：解除指定频道的绑定，省略时使用当前频道。频道 ID 可用 /bb status 查看",
   "/bb new：开启新会话，所有绑定的频道都改用新会话",
   "/bb stop：中止正在进行的回合，队列中的消息不受影响",
   "/bb compact [说明]：压缩当前会话",
@@ -248,8 +248,8 @@ export class Commands {
         return this.attach(ctx, p.options, p.missing);
       case "detach":
         noOptions();
-        noExtra(0);
-        return this.detach(ctx);
+        noExtra(1);
+        return this.detach(ctx.channelId, rest[0]);
       case "new":
         noOptions();
         noExtra(0);
@@ -355,15 +355,16 @@ export class Commands {
     return `${existing ? "已更新绑定" : "已绑定"} ${b.channelId}${name}：${describeBinding(b)}`;
   }
 
-  private detach(ctx: CommandContext): string {
-    if (ctx.channelId === CONSOLE_CHANNEL) {
+  private detach(currentChannel: string, target?: string): string {
+    const channelId = target ?? currentChannel;
+    if (channelId === CONSOLE_CHANNEL) {
       throw new CommandError("控制台频道始终绑定");
     }
-    if (!this.deps.repo.deleteBinding(ctx.channelId)) {
-      throw new CommandError("当前频道没有绑定");
+    if (!this.deps.repo.deleteBinding(channelId)) {
+      throw new CommandError(target === undefined ? "当前频道没有绑定" : `频道 ${channelId} 没有绑定`);
     }
     this.deps.notifier.bindingsChanged();
-    return `已解除绑定 ${ctx.channelId}`;
+    return `已解除绑定 ${channelId}`;
   }
 
   private async stop(): Promise<string> {

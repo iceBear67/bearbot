@@ -274,7 +274,7 @@ docker run -d --name bearbot --stop-timeout 120 --tmpfs /run/bearbot \
 | `/bb help` | 命令列表 |
 | `/bb here` | 当前频道、会话串、绑定设置与 agent 状态 |
 | `/bb attach [--trigger mention\|all\|prefix] [--prefix <文本>] [--reply final\|each] [--interrupt queue\|steer]` | 绑定当前频道，或修改它的绑定设置 |
-| `/bb detach` | 解除当前频道的绑定 |
+| `/bb detach [频道ID]` | 解除指定频道的绑定，省略 ID 时解除当前频道的绑定。频道 ID 可从 `/bb status` 查看，例如在控制台输入 `/bb detach telegram:-1001234567890` |
 | `/bb new` | 开启新会话，所有绑定的频道都改用新会话 |
 | `/bb stop` | 中止正在进行的回合 |
 | `/bb compact [说明]` | 压缩当前会话 |
